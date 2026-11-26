@@ -55,8 +55,33 @@ export function loadConfig(env = process.env) {
     throw new Error('https 운영에서 COOKIE_SECURE=false 는 허용되지 않습니다');
   }
 
+  // OAuth: CLIENT_ID 가 있는 공급자만 활성화
+  const oauth = {};
+  for (const id of ['kakao', 'google', 'github']) {
+    const up = id.toUpperCase();
+    const clientId = env[`OAUTH_${up}_CLIENT_ID`];
+    if (!clientId) continue;
+    const clientSecret = env[`OAUTH_${up}_CLIENT_SECRET`] ?? '';
+    if (!clientSecret && id !== 'kakao') throw new Error(`OAUTH_${up}_CLIENT_SECRET 가 필요합니다`);
+    oauth[id] = { clientId, clientSecret };
+  }
+
+  // 오너 화이트리스트: "github:12345,google:1098..." — 이메일이 아니라 provider + 고유 ID (ai.md §5)
+  const ownerAccounts = new Set(
+    (env.OWNER_ACCOUNTS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  for (const a of ownerAccounts) {
+    if (!/^(kakao|google|github):[A-Za-z0-9_-]{1,128}$/.test(a)) throw new Error(`OWNER_ACCOUNTS 형식 오류: ${a}`);
+  }
+
   return {
     envFile,
+    oauth,
+    ownerAccounts,
+    passkeyFile: path.join(dataDir, 'passkeys.json'),
     host: env.GATEWAY_HOST ?? '127.0.0.1', // nginx 뒤에서만 받는다
     port: port(env.GATEWAY_PORT, 7400, 'GATEWAY_PORT'),
     publicOrigin,

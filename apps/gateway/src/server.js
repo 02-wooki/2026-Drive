@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { SessionStore } from './sessions.js';
 import { AgentClient, AgentMonitor } from './agent-client.js';
+import { PasskeyStore } from './auth/passkeys.js';
 
 const log = (msg) => console.log(`[gateway] ${new Date().toISOString()} ${msg}`);
 
@@ -13,11 +14,17 @@ fs.mkdirSync(config.demoRoot, { recursive: true });
 const store = new SessionStore({ file: config.sessionFile, log });
 store.load();
 
+const passkeys = new PasskeyStore({ file: config.passkeyFile });
+passkeys.load();
+
+if (Object.keys(config.oauth).length === 0) log('warning: no OAuth provider configured — nobody can sign in');
+if (config.ownerAccounts.size === 0) log('setup mode: OWNER_ACCOUNTS is empty — every login becomes a guest');
+
 const monitor = new AgentMonitor({ log });
 const agent = new AgentClient({ baseUrl: config.agentUrl, secrets: config.agentSecrets, onReachability: (ok) => monitor.set(ok) });
 monitor.start(agent);
 
-const app = createApp({ ...config, store, agent, monitor, log });
+const app = createApp({ ...config, store, passkeys, agent, monitor, log });
 
 const server = app.listen(config.port, config.host, () => {
   // 비밀값은 출력하지 않는다

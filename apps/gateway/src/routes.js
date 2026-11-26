@@ -37,6 +37,8 @@ export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure }) {
   // ── 세션 ──
   api.get('/me', (req, res) => {
     if (!req.session) return res.json({ user: null });
+    // 화이트리스트 OAuth 는 통과했지만 패스키 전 → 아직 아무 권한 없음
+    if (!req.session.role) return res.json({ user: null, pending: req.session.stage ?? null });
     const { role, user } = req.session;
     res.json({ user: { role, nickname: user.nickname, provider: user.provider } });
   });
