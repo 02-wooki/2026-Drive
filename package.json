@@ -1,0 +1,17 @@
+{
+  "name": "wooki-drive",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Finder-like web file manager for a Windows desktop folder, gated by a Raspberry Pi",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
