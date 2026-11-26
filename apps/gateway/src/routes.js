@@ -36,7 +36,17 @@ const q = (vpath) => `path=${encodeURIComponent(normalizeVirtualPath(vpath))}`;
  *   demoRoot: string, cookieSecure: boolean,
  * }} deps
  */
-export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin = false, now = Date.now, thumbs = null }) {
+export function apiRouter({
+  agent,
+  monitor,
+  store,
+  demoRoot,
+  cookieSecure,
+  devLogin = false,
+  now = Date.now,
+  thumbs = null,
+  trashNotice = { days: 30, bytes: 10 * 1024 ** 3 },
+}) {
   const api = express.Router();
   const stepUp = requireStepUp({ store, devLogin, now });
   const uploadLimiter = new RateLimiter({ limit: 2000, windowMs: 10 * 60_000 }); // 폴더 업로드(파일 수백 개)는 허용
@@ -45,7 +55,16 @@ export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLo
   api.get('/me', (req, res) => {
     if (!req.session) return res.json({ user: null });
     // 화이트리스트 OAuth 는 통과했지만 패스키 전 → 아직 아무 권한 없음
-    if (!req.session.role) return res.json({ user: null, pending: req.session.stage ?? null });
+    if (!req.session.role) {
+      const locked = Boolean(req.session.locked);
+      // 잠긴 오너 세션: 화면을 그대로 두고 그 자리에서 패스키로 풀 수 있도록 표시용 정보만 준다 (권한은 없음)
+      return res.json({
+        user: null,
+        pending: req.session.stage ?? null,
+        locked,
+        ...(locked ? { lockedUser: { role: ROLES.OWNER, nickname: req.session.user.nickname, provider: req.session.user.provider } } : {}),
+      });
+    }
     const { role, user } = req.session;
     res.json({ user: { role, nickname: user.nickname, provider: user.provider } });
   });
@@ -148,6 +167,13 @@ export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLo
   files.post('/move', json, fwd('POST', () => '/v1/move', only('paths', 'to', 'onConflict')));
   files.post('/trash', json, fwd('POST', () => '/v1/trash', only('paths')));
   files.get('/trash', async (_req, res) => res.json(await agent.getJson('/v1/trash')));
+  // 접속 시 배너용 (D20): 오래된 항목·큰 용량이면 notice 에 표시
+  files.get('/trash/summary', async (_req, res) => {
+    const s = await agent.getJson('/v1/trash/summary');
+    const old = s.oldestDeletedAt != null && now() - s.oldestDeletedAt >= trashNotice.days * 86_400_000;
+    const large = s.totalBytes >= trashNotice.bytes;
+    res.json({ ...s, notice: old || large ? { old, large, days: trashNotice.days, limitBytes: trashNotice.bytes } : null });
+  });
   files.post('/trash/restore', json, fwd('POST', () => '/v1/trash/restore', only('ids')));
   // 되돌릴 수 없는 작업: 패스키 재인증 1회용 허가 필요 (ai.md D16)
   files.post('/trash/delete', json, stepUp, fwd('POST', () => '/v1/trash/delete', only('ids')));

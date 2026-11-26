@@ -12,6 +12,7 @@
 // POST /v1/move         { paths[], to, onConflict? }          → { results[] }
 // POST /v1/trash        { paths[] }                           → { results[] }
 // GET  /v1/trash                                              → { items[] }
+// GET  /v1/trash/summary                                      → { count, totalBytes, oldestDeletedAt }
 // POST /v1/trash/restore { ids[] }                            → { results[] }
 // POST /v1/trash/delete  { ids[] }                            → { results[] }   (영구 삭제 — gateway 가 패스키 재인증 후에만 호출)
 // POST /v1/trash/empty                                        → { deleted }
@@ -37,6 +38,7 @@ import {
   moveEntry,
   trashEntry,
   listTrash,
+  trashSummary,
   restoreTrash,
   deleteTrash,
   ensureDirectory,
@@ -225,6 +227,10 @@ export function createApp({
 
   v1.get('/trash', async (_req, res) => {
     res.json({ items: await listTrash(dirs.trash) });
+  });
+
+  v1.get('/trash/summary', async (_req, res) => {
+    res.json(await trashSummary(dirs.trash));
   });
 
   v1.post('/trash/restore', signedJson, async (req, res) => {

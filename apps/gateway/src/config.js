@@ -35,6 +35,13 @@ function port(value, fallback, name) {
 
 const HOUR = 3600_000;
 
+function positive(value, fallback, name) {
+  if (value === undefined || value === '') return fallback;
+  const n = Number(value);
+  if (!(n > 0)) throw new Error(`${name} 는 양수여야 합니다`);
+  return n;
+}
+
 /**
  * @param {NodeJS.ProcessEnv} [env]
  */
@@ -101,11 +108,19 @@ export function loadConfig(env = process.env) {
     dataDir,
     demoRoot: path.resolve(env.DEMO_ROOT ?? path.join(dataDir, 'demo')),
     sessionFile: path.join(dataDir, 'sessions', 'sessions.json'),
+    trashNotice: {
+      days: positive(env.TRASH_NOTICE_DAYS, 30, 'TRASH_NOTICE_DAYS'),
+      bytes: positive(env.TRASH_NOTICE_GB, 10, 'TRASH_NOTICE_GB') * 1024 ** 3,
+    },
     thumbCacheDir: path.join(dataDir, 'cache', 'thumbs'),
     thumbCacheMaxBytes: Number(env.THUMB_CACHE_MAX_MB ?? 512) * 1024 * 1024,
     cookieSecure,
     session: {
-      owner: { absoluteMs: 12 * HOUR, idleMs: 2 * HOUR },
+      // D17: 무활동 10분 → 잠금(패스키만), 2시간 → 완전 만료. 불편하면 env 로 늘린다.
+      owner: {
+        absoluteMs: positive(env.OWNER_SESSION_HOURS, 2, 'OWNER_SESSION_HOURS') * HOUR,
+        idleMs: positive(env.OWNER_IDLE_MINUTES, 10, 'OWNER_IDLE_MINUTES') * 60_000,
+      },
       guest: { absoluteMs: 7 * 24 * HOUR, idleMs: 24 * HOUR },
     },
   };

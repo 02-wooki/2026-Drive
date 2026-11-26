@@ -39,6 +39,47 @@ test('idle and absolute expiry', () => {
   assert.equal(s.get(id2), null);
 });
 
+test('owner sessions lock on idle instead of expiring (D17)', () => {
+  let t = 0;
+  const s = new SessionStore({ now: () => t });
+  const ttl2h = { absoluteMs: 2 * 3600_000, idleMs: 10 * 60_000 };
+  const { id } = s.create({ role: 'owner', user, lockOnIdle: true }, ttl2h);
+
+  // 백그라운드 조회는 활동으로 치지 않는다
+  t = 9 * 60_000;
+  assert.equal(s.get(id, { touch: false }).role, 'owner');
+  t = 10 * 60_000;
+  const locked = s.get(id, { touch: false });
+  assert.equal(locked.role, null);
+  assert.equal(locked.stage, 'passkey');
+  assert.equal(locked.locked, true);
+
+  // 잠금 해제(rotate keepAbsolute)는 처음 로그인 기준 절대 만료를 늘리지 않는다
+  t = 30 * 60_000;
+  s.update(id, { stepUp: { expiresAt: t + 1 } });
+  const r = s.rotate(id, { role: 'owner', stage: null, locked: false }, ttl2h, { keepAbsolute: true });
+  assert.equal(r.session.absoluteExpiresAt, 2 * 3600_000);
+  assert.equal(s.get(r.id).role, 'owner');
+
+  // 활동 중이면 잠기지 않음
+  t += 9 * 60_000;
+  assert.equal(s.get(r.id).role, 'owner');
+  t += 9 * 60_000;
+  assert.equal(s.get(r.id).role, 'owner');
+
+  // 2시간이 지나면 완전 만료
+  t = 2 * 3600_000;
+  assert.equal(s.get(r.id), null);
+});
+
+test('locking clears step-up permission', () => {
+  let t = 0;
+  const s = new SessionStore({ now: () => t });
+  const { id } = s.create({ role: 'owner', user, lockOnIdle: true, stepUp: { expiresAt: 999_999 } }, { absoluteMs: 3600_000, idleMs: 1000 });
+  t = 1000;
+  assert.equal(s.get(id).stepUp, null);
+});
+
 test('rotate issues a new id and kills the old one', () => {
   const s = new SessionStore();
   const { id } = s.create({ role: 'guest', user, stage: 'pending-passkey' }, ttl);

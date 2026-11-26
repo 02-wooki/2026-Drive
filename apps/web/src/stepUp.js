@@ -20,7 +20,12 @@ export async function withStepUp(action) {
     response = await startAuthentication({ optionsJSON });
   } catch (e) {
     const err = new Error('cancelled');
-    err.code = e?.name === 'NotAllowedError' || e?.name === 'AbortError' ? 'PASSKEY_CANCELLED' : 'PASSKEY_FAILED';
+    err.code =
+      e?.name === 'NotAllowedError' || e?.name === 'AbortError'
+        ? 'PASSKEY_CANCELLED'
+        : e?.code === 'ERROR_INVALID_DOMAIN'
+          ? 'PASSKEY_INVALID_DOMAIN'
+          : 'PASSKEY_FAILED';
     throw err;
   }
   await api.passkey.reauthVerify(response);

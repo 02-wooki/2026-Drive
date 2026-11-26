@@ -9,13 +9,25 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(method, url, body) {
+/** 세션이 잠기거나 만료되면(401 LOGIN_REQUIRED) 앱 전체에 알린다 → App 이 로그인/패스키 화면으로 보냄 */
+export const AUTH_LOST_EVENT = 'wd:auth-lost';
+export function reportAuthLost(code) {
+  if (code === 'LOGIN_REQUIRED') dispatchEvent(new Event(AUTH_LOST_EVENT));
+}
+
+/**
+ * @param {{ background?: boolean }} [opts]  background: 주기적 폴링 — 서버가 '활동'으로 치지 않는다(무활동 잠금 유지)
+ */
+export async function request(method, url, body, { background = false } = {}) {
   let res;
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (background) headers['X-Wooki-Background'] = '1';
   try {
     res = await fetch(url, {
       method,
       credentials: 'same-origin',
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -30,6 +42,7 @@ export async function request(method, url, body) {
   if (!res.ok) {
     const err = new ApiError(res.status, data?.error ?? `HTTP_${res.status}`);
     if (Number.isSafeInteger(data?.received)) err.received = data.received;
+    if (url !== '/api/me') reportAuthLost(err.code);
     throw err;
   }
   return data;
@@ -42,7 +55,8 @@ const q = (path) => `path=${encodeURIComponent(path)}`;
 export const api = {
   me: () => request('GET', '/api/me'),
   logout: () => request('POST', '/api/logout'),
-  status: () => request('GET', '/api/status'),
+  status: () => request('GET', '/api/status', undefined, { background: true }),
+  trashSummary: () => request('GET', '/api/files/trash/summary', undefined, { background: true }),
   providers: () => request('GET', '/auth/providers'),
   devLogin: (role) => request('POST', '/auth/dev/login', { role }),
 

@@ -393,7 +393,7 @@ a {
 
 .pane {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto; /* 툴바 · 배너 자리 · 내용 · 경로 막대 */
   min-width: 0;
   min-height: 0;
 }
@@ -888,6 +888,73 @@ pre.ql-text {
   to {
     transform: rotate(1turn);
   }
+}
+
+/* ── 잠금 게이트 (D17) ── */
+
+.lock-catcher {
+  /* 화면은 그대로 보이고, 첫 클릭만 가로챈다 */
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  cursor: pointer;
+}
+.lock-pill {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 51;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 6px 6px 12px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 88%, transparent);
+  color: var(--bg);
+  font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  animation: rise 0.18s ease-out;
+}
+.lock-pill.has-error {
+  background: var(--danger);
+  color: #fff;
+}
+.lock-pill-btn {
+  flex: none;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 22%, transparent);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── 알림 배너 ── */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  background: color-mix(in srgb, #f5a623 14%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, #f5a623 35%, var(--line));
+  font-size: 12.5px;
+}
+.banner > svg {
+  flex: none;
+  color: #c27c0e;
+}
+.banner-text {
+  flex: 1;
+  min-width: 0;
+}
+.banner-action {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 /* ── 쓰기 기능: 이름 변경, 끌어다 놓기 ─────────────── */

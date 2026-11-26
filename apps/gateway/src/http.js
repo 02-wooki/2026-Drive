@@ -45,12 +45,16 @@ export function noStore(_req, res, next) {
   next();
 }
 
+/** 백그라운드 폴링 표시 헤더. 이 요청은 세션 '활동'으로 치지 않는다 (탭만 열어 둬도 잠기지 않는 문제 방지, D17). */
+export const BACKGROUND_HEADER = 'x-wooki-background';
+
 /** 쿠키 → req.session / req.sessionId. 없으면 null. */
 export function loadSession({ store, secure }) {
   const name = cookieName(secure);
   return (req, _res, next) => {
     const id = parseCookies(req.headers.cookie)[name];
-    const session = id ? store.get(id) : null;
+    const touch = req.headers[BACKGROUND_HEADER] !== '1';
+    const session = id ? store.get(id, { touch }) : null;
     req.sessionId = session ? id : null;
     req.session = session;
     next();

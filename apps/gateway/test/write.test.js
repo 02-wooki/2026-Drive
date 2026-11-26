@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import http from 'node:http';
 import { toKeyList } from '@wooki-drive/shared/node';
 import { createApp as createAgentApp } from '../../agent/src/app.js';
 import { createApp } from '../src/app.js';
@@ -40,6 +41,7 @@ before(async () => {
     passkeys: new PasskeyStore(),
     agent: new AgentClient({ baseUrl: `http://127.0.0.1:${agentServer.address().port}`, secrets: toKeyList(SECRET) }),
     monitor: new AgentMonitor(),
+    trashNotice: { days: 30, bytes: 1024 },
   });
   gw = await listen(app);
   base = `http://127.0.0.1:${gw.address().port}`;
@@ -115,6 +117,20 @@ test('permanent delete and empty require a one-time passkey step-up', async () =
   assert.deepEqual((await api('POST', '/api/files/trash/empty', {})).body, { deleted: 0 });
 });
 
+test('trash summary raises a notice for size or age (D20)', async () => {
+  fs.mkdirSync(path.join(drive, 'old', 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(drive, 'old', 'a.bin'), Buffer.alloc(3000));
+  fs.writeFileSync(path.join(drive, 'old', 'sub', 'b.bin'), Buffer.alloc(2000));
+  await api('POST', '/api/files/trash', { paths: ['/old'] });
+
+  const s = (await api('GET', '/api/files/trash/summary')).body;
+  assert.equal(s.count, 1);
+  assert.equal(s.totalBytes, 5000); // 폴더 안 파일 합
+  assert.equal(s.notice.large, true); // 이 테스트 앱은 1KB 를 상한으로 둠
+  assert.equal(s.notice.old, false);
+  assert.equal((await api('GET', '/api/files/trash/summary', undefined, { cookie: guestCookie })).status, 403);
+});
+
 test('chunked upload streams through the gateway', async () => {
   const data = Buffer.from('0123456789'.repeat(250)); // 2500 bytes, chunk 1000
   const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -141,15 +157,26 @@ test('chunked upload streams through the gateway', async () => {
 
   // 잘못된 id 는 agent 경로에 끼워 넣지 않는다
   assert.equal((await api('GET', '/api/files/uploads/..%2F..%2Fv1%2Flist')).status, 404);
-  // 청크 상한
-  const tooBig = await fetch(`${base}/api/files/uploads/${'a'.repeat(22)}?offset=0`, {
-    method: 'PUT',
-    headers: { cookie: ownerCookie, Origin: ORIGIN, 'Content-Length': String(40 * 1024 * 1024) },
-    body: Buffer.alloc(10),
-    duplex: 'half',
-  }).catch(() => null);
-  // Content-Length 와 실제 본문이 달라 연결이 끊길 수도 있다 — 끊기지 않았다면 413 이어야 한다
-  if (tooBig) assert.equal(tooBig.status, 413);
+  // 청크 상한: 본문을 보내기 전에 헤더(Content-Length)만으로 413 을 받아야 한다 — 40MB 를 실제로 보내지 않는다
+  const tooBigStatus = await new Promise((resolve, reject) => {
+    const r = http.request(
+      {
+        host: '127.0.0.1',
+        port: gw.address().port,
+        method: 'PUT',
+        path: `/api/files/uploads/${'a'.repeat(22)}?offset=0`,
+        headers: { cookie: ownerCookie, Origin: ORIGIN, 'Content-Length': String(40 * 1024 * 1024) },
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+        r.destroy();
+      },
+    );
+    r.on('error', (e) => (e.code === 'ECONNRESET' ? null : reject(e)));
+    r.flushHeaders();
+  });
+  assert.equal(tooBigStatus, 413);
 
   const c2 = await api('POST', '/api/files/uploads', { path: '/docs/cancel.bin', size: 5 });
   assert.deepEqual((await api('DELETE', `/api/files/uploads/${c2.body.id}`)).body, { ok: true });

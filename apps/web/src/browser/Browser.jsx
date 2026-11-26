@@ -164,6 +164,21 @@ export function Browser({ user, loc, navigate, onLogout }) {
     };
   }, []);
 
+  // ── 휴지통 알림 (D20): 접속 시 한 번, 30일 넘은 항목이나 큰 용량이면 배너. 닫으면 이 탭에선 다시 안 띄움 ──
+  const [trashNotice, setTrashNotice] = useState(null);
+  useEffect(() => {
+    if (!isOwner || sessionStorage.getItem('wd.trashNoticeSeen')) return;
+    api
+      .trashSummary()
+      .then((s) => s.notice && setTrashNotice(s))
+      .catch(() => {}); // 데스크탑 꺼짐 등 — 조용히 넘어감
+  }, [isOwner]);
+  const dismissTrashNotice = () => {
+    sessionStorage.setItem('wd.trashNoticeSeen', '1');
+    setTrashNotice(null);
+  };
+
+  // 꺼져 있다가 켜지면 자동으로 다시 불러오기
   useEffect(() => {
     if (desktop === 'online' && source === 'files' && listing.error?.code === 'AGENT_OFFLINE') load();
   }, [desktop, source, listing.error, load]);
@@ -662,6 +677,36 @@ export function Browser({ user, loc, navigate, onLogout }) {
             </div>
           )}
         </header>
+
+        <div className="banner-slot">
+          {trashNotice && (
+            <div className="banner" role="status">
+              <Glyph name="trash" />
+              <span className="banner-text">
+                {trashNotice.notice.old && trashNotice.notice.large
+                  ? `휴지통에 ${trashNotice.notice.days}일이 지난 항목이 있고, 용량이 ${formatSize(trashNotice.totalBytes)}예요.`
+                  : trashNotice.notice.old
+                    ? `휴지통에 ${trashNotice.notice.days}일이 지난 항목이 있어요. (${trashNotice.count}개, ${formatSize(trashNotice.totalBytes)})`
+                    : `휴지통 용량이 ${formatSize(trashNotice.totalBytes)}예요. (${trashNotice.count}개)`}
+              </span>
+              {source !== 'trash' && (
+                <button
+                  type="button"
+                  className="btn banner-action"
+                  onClick={() => {
+                    dismissTrashNotice();
+                    go('trash');
+                  }}
+                >
+                  휴지통 열기
+                </button>
+              )}
+              <button type="button" className="icon-btn" onClick={dismissTrashNotice} aria-label="알림 닫기" title="닫기">
+                <Glyph name="close" />
+              </button>
+            </div>
+          )}
+        </div>
 
         {source === 'trash' ? (
           <div className="content trash-content" tabIndex={-1}>

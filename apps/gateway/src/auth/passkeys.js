@@ -27,6 +27,8 @@ import { issueSession } from './session-cookie.js';
 const CHALLENGE_TTL_MS = 5 * 60_000;
 /** 재인증 허가 유효 시간. 한 번 쓰면 사라진다. */
 export const STEP_UP_TTL_MS = 2 * 60_000;
+/** owner 승격 시 세션에 넣는 값. lockOnIdle: 무활동이면 잠금 (D17) */
+export const OWNER_PATCH = { role: ROLES.OWNER, stage: null, webauthn: null, locked: false, lockOnIdle: true };
 const MAX_CREDENTIALS = 20;
 const OWNER_USER_ID = new TextEncoder().encode('wooki-drive-owner');
 
@@ -127,6 +129,7 @@ export function passkeyRouter({ publicOrigin, cookieSecure, sessionTtl, store, p
     const s = req.session;
     res.json({
       pending: isPending(s),
+      locked: isPending(s) && Boolean(s.locked),
       registered: passkeys.count > 0,
       canRegister: canRegister(s),
       canLogin: isPending(s) && passkeys.count > 0,
@@ -187,7 +190,7 @@ export function passkeyRouter({ publicOrigin, cookieSecure, sessionTtl, store, p
 
     if (isPending(session)) {
       // 최초 등록 = 방금 사용자 확인(UV)까지 했으므로 owner 로 승격. 권한 변경이므로 새 세션 ID.
-      const rotated = store.rotate(req.sessionId, { role: ROLES.OWNER, stage: null, webauthn: null }, sessionTtl.owner);
+      const rotated = store.rotate(req.sessionId, OWNER_PATCH, sessionTtl.owner);
       issueSession(res, rotated.id, sessionTtl.owner, cookieSecure);
     }
     res.json({ ok: true });
@@ -235,9 +238,11 @@ export function passkeyRouter({ publicOrigin, cookieSecure, sessionTtl, store, p
     if (!result.verified) throw new HttpError(400, 'PASSKEY_FAILED');
 
     await passkeys.touch(cred.id, result.authenticationInfo.newCounter, now());
-    const rotated = store.rotate(req.sessionId, { role: ROLES.OWNER, stage: null, webauthn: null }, sessionTtl.owner);
-    issueSession(res, rotated.id, sessionTtl.owner, cookieSecure);
-    log('owner signed in with passkey');
+    // 잠금 해제(무활동 10분 뒤)는 처음 로그인 기준 2시간을 넘겨 늘리지 않는다 (D17)
+    const wasLocked = Boolean(req.session.locked);
+    const rotated = store.rotate(req.sessionId, OWNER_PATCH, sessionTtl.owner, { keepAbsolute: wasLocked });
+    issueSession(res, rotated.id, { absoluteMs: rotated.session.absoluteExpiresAt - now() }, cookieSecure);
+    log(wasLocked ? 'owner unlocked with passkey' : 'owner signed in with passkey');
     res.json({ ok: true });
   });
 

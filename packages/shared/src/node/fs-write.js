@@ -181,6 +181,8 @@ export async function trashEntry(root, trashRoot, vpath, { now = Date.now() } = 
     originalPath: formatVirtualPath(src.segs),
     type: src.stat.isDirectory() ? 'dir' : src.stat.isFile() ? 'file' : 'other',
     size: src.stat.isFile() ? src.stat.size : null,
+    // 폴더는 안의 파일 크기 합 (휴지통 용량 알림용, D20). 링크는 따라가지 않는다.
+    totalBytes: src.stat.isDirectory() ? await treeSize(src.entryPath) : src.stat.isFile() ? src.stat.size : 0,
     deletedAt: now,
   };
   await fsp.writeFile(meta, JSON.stringify(meta0));
@@ -194,7 +196,42 @@ export async function trashEntry(root, trashRoot, vpath, { now = Date.now() } = 
   return { id };
 }
 
-/** @returns {Promise<Array<{ id: string, name: string, originalPath: string, type: string, size: number | null, deletedAt: number }>>} */
+/** 폴더 안 파일 크기 합. 링크는 세지 않고 따라가지도 않는다. */
+async function treeSize(p) {
+  let total = 0;
+  const stack = [p];
+  while (stack.length) {
+    const dir = stack.pop();
+    let names;
+    try {
+      names = await fsp.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const st = await lstatOrNull(path.join(dir, name)).catch(() => null);
+      if (!st || st.isSymbolicLink()) continue;
+      if (st.isDirectory()) stack.push(path.join(dir, name));
+      else if (st.isFile()) total += st.size;
+    }
+  }
+  return total;
+}
+
+/**
+ * 휴지통 요약 (알림 배너용, D20).
+ * @returns {Promise<{ count: number, totalBytes: number, oldestDeletedAt: number | null }>}
+ */
+export async function trashSummary(trashRoot) {
+  const items = await listTrash(trashRoot);
+  return {
+    count: items.length,
+    totalBytes: items.reduce((s, it) => s + (it.totalBytes ?? it.size ?? 0), 0),
+    oldestDeletedAt: items.length ? Math.min(...items.map((it) => it.deletedAt)) : null,
+  };
+}
+
+/** @returns {Promise<Array<{ id: string, name: string, originalPath: string, type: string, size: number | null, totalBytes?: number, deletedAt: number }>>} */
 export async function listTrash(trashRoot) {
   let ids;
   try {

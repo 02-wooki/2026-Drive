@@ -6,7 +6,7 @@
 //  - 네트워크 오류·5xx 는 지수 백오프로 재시도, 409 OFFSET_MISMATCH 는 서버의 received 부터 이어서
 //  - 업로드 id 는 localStorage 에 (대상 경로 + 크기 + 수정시각) 키로 저장 → 탭을 닫았다 같은 파일을 다시 올리면 이어서
 
-import { api, ApiError } from './api.js';
+import { api, ApiError, reportAuthLost } from './api.js';
 
 const CONCURRENCY = 2;
 const MAX_RETRIES = 6;
@@ -115,6 +115,11 @@ class UploadManager {
     this.#pump();
   }
 
+  /** 세션 잠금·만료(LOGIN_REQUIRED)로 멈춘 업로드를 다시 시작 — 이미 받은 위치부터 이어진다 */
+  resumeAfterAuth() {
+    for (const it of this.items) if (it.state === 'error' && it.error === 'LOGIN_REQUIRED') this.retry(it.key);
+  }
+
   /** 끝난(완료·취소) 항목 지우기 */
   clearFinished() {
     this.items = this.items.filter((i) => i.state === 'queued' || i.state === 'uploading' || i.state === 'error');
@@ -201,6 +206,7 @@ class UploadManager {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          reportAuthLost(data.error);
           const err = new ApiError(res.status, data.error ?? `HTTP_${res.status}`);
           if (Number.isSafeInteger(data.received)) err.received = data.received;
           throw err;

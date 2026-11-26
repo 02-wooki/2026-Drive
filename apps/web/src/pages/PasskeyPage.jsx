@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { startAuthentication, startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
-import { api } from '../api.js';
+import { api, ApiError } from '../api.js';
 import { messageFor } from '../messages.js';
 import { AppMark } from '../browser/icons.jsx';
 
 /** 브라우저 WebAuthn 오류 → 코드 */
 function webauthnError(e) {
   if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') return { code: 'PASSKEY_CANCELLED' };
-  if (e?.code) return e; // ApiError
+  if (e?.code === 'ERROR_INVALID_DOMAIN') return { code: 'PASSKEY_INVALID_DOMAIN' }; // IP 주소 접속 등
+  if (e instanceof ApiError) return e;
   return { code: 'PASSKEY_FAILED' };
 }
 
@@ -68,7 +69,11 @@ export function PasskeyPage({ onDone }) {
 
         {status?.canLogin && (
           <>
-            <p className="login-lede">오너 계정이에요. 등록한 패스키(Touch ID 등)로 한 번 더 확인할게요.</p>
+            <p className="login-lede">
+              {status.locked
+                ? '한동안 사용하지 않아 잠겼어요. 패스키(Touch ID)로 확인하면 보던 곳으로 돌아가요.'
+                : '오너 계정이에요. 등록한 패스키(Touch ID 등)로 한 번 더 확인할게요.'}
+            </p>
             <div className="login-buttons">
               <button type="button" className="btn btn-primary btn-large" disabled={busy || !supported} onClick={() => run('login')}>
                 {busy ? '확인 중…' : '패스키로 확인'}
@@ -93,6 +98,9 @@ export function PasskeyPage({ onDone }) {
         )}
 
         {expired && <p className="login-lede">확인 시간이 지났어요. 처음부터 다시 로그인해 주세요.</p>}
+        {status?.pending && !status.canLogin && !status.canRegister && (
+          <p className="login-lede">잠겼지만 이 세션으로 확인할 수 있는 패스키가 없어요. 다시 로그인해 주세요.</p>
+        )}
 
         <p className="login-guest-note">
           <a

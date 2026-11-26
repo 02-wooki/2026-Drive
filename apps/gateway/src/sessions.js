@@ -3,6 +3,7 @@
 // - 세션 ID: 32바이트 난수(base64url). 쿠키로만 오간다.
 // - 저장 키는 ID 의 SHA-256. 세션 파일이 유출돼도 그 값으로 로그인할 수 없다.
 // - 만료: 절대 만료(absolute) + 유휴 만료(idle). 역할별 값은 config.session.
+//   오너 세션은 lockOnIdle: 유휴 시 지우지 않고 '잠금'(권한 없음, 패스키만 다시) → ai.md D17.
 // - 파이 SD카드 쓰기 최소화: 생성·삭제·내용 변경 때만 파일에 기록(디바운스).
 //   lastSeen 갱신은 메모리에서만 → 재시작하면 유휴 시간이 더 길게 계산돼 더 빨리 만료(안전한 쪽).
 
@@ -55,8 +56,10 @@ export class SessionStore {
     }
   }
 
+  /** 완전히 버릴 세션인가. lockOnIdle 세션은 무활동이어도 버리지 않고 get() 에서 잠근다 (ai.md D17). */
   #expired(s, now) {
-    return now >= s.absoluteExpiresAt || now - s.lastSeen >= s.idleMs;
+    if (now >= s.absoluteExpiresAt) return true;
+    return !s.lockOnIdle && now - s.lastSeen >= s.idleMs;
   }
 
   #markDirty() {
@@ -101,8 +104,12 @@ export class SessionStore {
     return { id, session };
   }
 
-  /** @returns {Session | null} */
-  get(id) {
+  /**
+   * @param {string} id
+   * @param {{ touch?: boolean }} [opts]  touch=false: 백그라운드 폴링처럼 '활동'으로 치지 않는 조회
+   * @returns {Session | null}
+   */
+  get(id, { touch = true } = {}) {
     if (typeof id !== 'string' || !ID_RE.test(id)) return null;
     const key = keyOf(id);
     const s = this.map.get(key);
@@ -113,7 +120,13 @@ export class SessionStore {
       this.#markDirty();
       return null;
     }
-    s.lastSeen = now; // 메모리에서만
+    // 무활동 → 잠금: 권한을 떼고 패스키 대기 상태로. 절대 만료 안에서는 패스키만으로 풀 수 있다.
+    if (s.lockOnIdle && s.role && now - s.lastSeen >= s.idleMs) {
+      Object.assign(s, { role: null, stage: 'passkey', locked: true, webauthn: null, stepUp: null, lastSeen: now });
+      this.#markDirty();
+      return s;
+    }
+    if (touch) s.lastSeen = now; // 메모리에서만
     return s;
   }
 
@@ -130,12 +143,15 @@ export class SessionStore {
    * 권한이 바뀔 때 세션 ID 를 새로 발급 (세션 고정 공격 방지). 기존 ID 는 폐기.
    * @returns {{ id: string, session: Session } | null}
    */
-  rotate(id, patch, ttl) {
+  rotate(id, patch, ttl, { keepAbsolute = false } = {}) {
     const s = this.get(id);
     if (!s) return null;
     this.destroy(id);
-    const { createdAt: _c, lastSeen: _l, absoluteExpiresAt: _a, idleMs: _i, ...data } = s;
-    return this.create({ ...data, ...patch }, ttl);
+    const { createdAt: _c, lastSeen: _l, absoluteExpiresAt: oldAbsolute, idleMs: _i, ...data } = s;
+    const created = this.create({ ...data, ...patch }, ttl);
+    // 잠금 해제는 '리프레시'일 뿐 — 처음 로그인 기준 절대 만료를 늘리지 않는다
+    if (keepAbsolute) created.session.absoluteExpiresAt = Math.min(created.session.absoluteExpiresAt, oldAbsolute);
+    return created;
   }
 
   destroy(id) {

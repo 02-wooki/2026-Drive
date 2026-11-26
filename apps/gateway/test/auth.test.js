@@ -14,7 +14,7 @@ import { loadConfig } from '../src/config.js';
 const ORIGIN = 'https://drive.example.test';
 const RP_ID = 'drive.example.test';
 const HOUR = 3600_000;
-const SESSION = { owner: { absoluteMs: 12 * HOUR, idleMs: 2 * HOUR }, guest: { absoluteMs: 24 * HOUR, idleMs: HOUR } };
+const SESSION = { owner: { absoluteMs: 2 * HOUR, idleMs: 10 * 60_000 }, guest: { absoluteMs: 24 * HOUR, idleMs: HOUR } };
 const SID = cookieName(true);
 const OAUTH_COOKIE = '__Host-wd_oauth';
 
@@ -93,7 +93,7 @@ const listen = (app) =>
 
 let server, base, ctx;
 before(async () => {
-  ctx = build({ limits: { passkey: 1000 } }); // 한 서버에서 여러 흐름을 돌리므로 한도를 넉넉히 (한도 자체는 별도 테스트)
+  ctx = build({ limits: { passkey: 1000 } }); // 한 서버에서 여러 흐름을 돌리므로 한도를 넉넉히 — 한도 자체는 'rate limit on passkey endpoints' 테스트
   server = await listen(ctx.app);
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -216,12 +216,12 @@ test('owner: whitelist → passkey registration (bootstrap) → owner', async ()
   const pending = cookieValue(cb, SID);
 
   // 패스키 전에는 아무 권한 없음
-  assert.deepEqual(await me(pending), { user: null, pending: 'passkey' });
+  assert.deepEqual(await me(pending), { user: null, pending: 'passkey', locked: false });
   assert.equal((await req('/api/status', { cookies: { [SID]: pending } })).status, 401);
   assert.equal((await req('/api/files/list?path=%2F', { cookies: { [SID]: pending } })).status, 401);
 
   const status = await (await req('/auth/passkey/status', { cookies: { [SID]: pending } })).json();
-  assert.deepEqual(status, { pending: true, registered: false, canRegister: true, canLogin: false });
+  assert.deepEqual(status, { pending: true, locked: false, registered: false, canRegister: true, canLogin: false });
 
   // CSRF: Origin 없이 거부
   assert.equal((await req('/auth/passkey/register/options', { method: 'POST', origin: null, cookies: { [SID]: pending } })).status, 403);
@@ -259,7 +259,7 @@ test('owner: registration closes after bootstrap; login requires passkey', async
   assert.deepEqual(await reg.json(), { error: 'PASSKEY_REGISTRATION_CLOSED' });
 
   const status = await (await req('/auth/passkey/status', { cookies: { [SID]: pending } })).json();
-  assert.deepEqual(status, { pending: true, registered: true, canRegister: false, canLogin: true });
+  assert.deepEqual(status, { pending: true, locked: false, registered: true, canRegister: false, canLogin: true });
 
   // 등록 안 된 자격 증명
   const o1 = await (await req('/auth/passkey/login/options', { method: 'POST', cookies: { [SID]: pending } })).json();
@@ -315,6 +315,54 @@ test('owner step-up re-auth grants a short, one-time permission', async () => {
   assert.deepEqual(await again.json(), { error: 'PASSKEY_CHALLENGE_EXPIRED' });
 });
 
+test('idle owner session locks; passkey unlocks without OAuth and keeps the 2h limit', async () => {
+  const pending = cookieValue(await login('github', 'code-owner'), SID);
+  const o = await (await req('/auth/passkey/login/options', { method: 'POST', cookies: { [SID]: pending } })).json();
+  const owner = cookieValue(
+    await req('/auth/passkey/login/verify', { method: 'POST', cookies: { [SID]: pending }, body: { id: 'cred-1', challenge: o.challenge } }),
+    SID,
+  );
+  const s = ctx.store.get(owner);
+  assert.equal(s.lockOnIdle, true);
+  const absolute = s.absoluteExpiresAt;
+
+  // 무활동 시간이 지난 것처럼 만든다
+  s.lastSeen = Date.now() - SESSION.owner.idleMs - 1;
+  // 잠긴 세션: 권한은 없고(user:null), 화면 유지용 표시 정보만 (D17 — 그 자리에서 패스키로 해제)
+  assert.deepEqual(await me(owner), {
+    user: null,
+    pending: 'passkey',
+    locked: true,
+    lockedUser: { role: 'owner', nickname: '우키', provider: 'github' },
+  });
+  assert.equal((await req('/api/files/list?path=%2F', { cookies: { [SID]: owner } })).status, 401);
+  const st = await (await req('/auth/passkey/status', { cookies: { [SID]: owner } })).json();
+  assert.equal(st.locked, true);
+  assert.equal(st.canLogin, true);
+
+  // OAuth 없이 패스키만으로 해제 → 새 세션 ID, 절대 만료는 그대로
+  const o2 = await (await req('/auth/passkey/login/options', { method: 'POST', cookies: { [SID]: owner } })).json();
+  const unlocked = await req('/auth/passkey/login/verify', { method: 'POST', cookies: { [SID]: owner }, body: { id: 'cred-1', challenge: o2.challenge } });
+  assert.equal(unlocked.status, 200);
+  const fresh = cookieValue(unlocked, SID);
+  assert.notEqual(fresh, owner);
+  assert.equal((await me(fresh)).user.role, 'owner');
+  assert.equal(ctx.store.get(fresh).absoluteExpiresAt, absolute);
+  const maxAge = Number(/Max-Age=(\d+)/.exec(unlocked.headers.getSetCookie()[0])[1]);
+  assert.ok(maxAge <= SESSION.owner.absoluteMs / 1000);
+});
+
+test('background polling does not keep the session awake', async () => {
+  const { id } = ctx.store.create({ role: 'owner', user: { provider: 'github', sub: '42', nickname: 'x' }, lockOnIdle: true }, SESSION.owner);
+  const s = ctx.store.get(id);
+  const before = s.lastSeen;
+  await new Promise((r) => setTimeout(r, 5));
+  await fetch(`${base}/api/status`, { headers: { cookie: `${SID}=${id}`, 'X-Wooki-Background': '1' } });
+  assert.equal(ctx.store.get(id, { touch: false }).lastSeen, before);
+  await fetch(`${base}/api/status`, { headers: { cookie: `${SID}=${id}` } });
+  assert.ok(ctx.store.get(id, { touch: false }).lastSeen > before);
+});
+
 test('rate limit on login start', async () => {
   const small = build({ limits: { login: 3 } });
   const s = await listen(small.app);
@@ -324,6 +372,27 @@ test('rate limit on login start', async () => {
     const r = await fetch(url, { redirect: 'manual' });
     assert.equal(r.status, 429);
     assert.deepEqual(await r.json(), { error: 'LOGIN_RATE_LIMITED' });
+  } finally {
+    s.close();
+  }
+});
+
+test('rate limit on passkey endpoints', async () => {
+  const small = build({ limits: { passkey: 3 } });
+  const s = await listen(small.app);
+  try {
+    const base2 = `http://127.0.0.1:${s.address().port}`;
+    for (let i = 0; i < 3; i++) assert.equal((await fetch(`${base2}/auth/passkey/status`)).status, 200);
+    const r = await fetch(`${base2}/auth/passkey/status`);
+    assert.equal(r.status, 429);
+    assert.deepEqual(await r.json(), { error: 'PASSKEY_RATE_LIMITED' });
+    // 검증 엔드포인트도 같은 한도에 묶인다 (무차별 대입 방지)
+    const v = await fetch(`${base2}/auth/passkey/login/verify`, {
+      method: 'POST',
+      headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.equal(v.status, 429);
   } finally {
     s.close();
   }
@@ -349,6 +418,13 @@ test('config validation', () => {
   assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://192.168.0.5:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }), /DEV_LOGIN/);
   assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', DEV_LOGIN: 'true' }), /DEV_LOGIN/); // Secure 쿠키
   assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }).devLogin, true);
+
+  // 세션 기본값 (D17) 과 조정
+  assert.deepEqual(c.session.owner, { absoluteMs: 2 * HOUR, idleMs: 10 * 60_000 });
+  const longer = loadConfig({ ...base, OWNER_IDLE_MINUTES: '30', OWNER_SESSION_HOURS: '8' });
+  assert.deepEqual(longer.session.owner, { absoluteMs: 8 * HOUR, idleMs: 30 * 60_000 });
+  assert.throws(() => loadConfig({ ...base, OWNER_IDLE_MINUTES: '0' }), /OWNER_IDLE_MINUTES/);
+  assert.deepEqual(c.trashNotice, { days: 30, bytes: 10 * 1024 ** 3 });
 });
 
 test('cleanNickname', () => {

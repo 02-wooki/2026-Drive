@@ -29,6 +29,7 @@ const MESSAGES = {
   PASSKEY_LIMIT: '패스키를 더 등록할 수 없어요.',
   PASSKEY_CANCELLED: '패스키 확인이 취소되었어요.',
   PASSKEY_UNSUPPORTED: '이 브라우저는 패스키를 지원하지 않아요.',
+  PASSKEY_INVALID_DOMAIN: '이 주소에서는 패스키를 쓸 수 없어요. IP 주소가 아닌 도메인(로컬은 localhost)으로 접속해 주세요.',
   CSRF_ORIGIN: '요청 출처를 확인할 수 없어요. 페이지를 새로고침해 주세요.',
   ALREADY_EXISTS: '같은 이름의 항목이 이미 있어요.',
   SAME_LOCATION: '이미 그 폴더에 있어요.',

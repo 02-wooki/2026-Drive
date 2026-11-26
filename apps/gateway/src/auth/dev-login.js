@@ -17,7 +17,14 @@ export function devLoginRouter({ store, sessionTtl, cookieSecure, log = () => {}
     if (role !== ROLES.OWNER && role !== ROLES.GUEST) throw new HttpError(400, 'BAD_ROLE');
     if (req.sessionId) store.destroy(req.sessionId);
     const ttl = sessionTtl[role];
-    const { id } = store.create({ role, user: { provider: 'dev', sub: role, nickname: role === 'owner' ? '개발 오너' : '개발 게스트' } }, ttl);
+    const { id } = store.create(
+      {
+        role,
+        user: { provider: 'dev', sub: role, nickname: role === 'owner' ? '개발 오너' : '개발 게스트' },
+        ...(role === ROLES.OWNER ? { lockOnIdle: true } : {}),
+      },
+      ttl,
+    );
     issueSession(res, id, ttl, cookieSecure);
     log(`DEV LOGIN as ${role}`);
     res.json({ ok: true });
