@@ -67,7 +67,8 @@ flowchart LR
 - [x] 폴더 목록 · 메타데이터 · 파일 스트리밍 (Range / ETag) (agent)
 - [x] 세션 · 역할 검사 · CSRF · agent 프록시 · 데모 폴더 · 데스크탑 상태 (gateway)
 - [x] OAuth 3종 + 화이트리스트 + 패스키 (서버)
-- [ ] Finder 스타일 웹 UI — 리스트/아이콘/컬럼 보기, 스페이스바 Quick Look, 단축키
+- [x] Finder 스타일 웹 UI — 목록/아이콘 보기, 정렬, 스페이스바 Quick Look, 단축키, 다크 모드
+- [ ] 컬럼 보기, 다중 선택
 - [ ] 청크 업로드 · 이어올리기 · 업로드 큐
 - [ ] 폴더 zip 다운로드, 썸네일 (`sharp`, `ffmpeg`)
 - [ ] 새 폴더 · 이름 변경 · 이동 · 휴지통
@@ -82,7 +83,7 @@ flowchart LR
 
 ```
 apps/
-  web/        Vite + React (예정)
+  web/        Vite + React — 로그인·패스키 화면, Finder 스타일 탐색기
   gateway/    라즈베리 파이에서 실행
   agent/      윈도우 데스크탑에서 실행 (윈도우 서비스)
 packages/
@@ -107,13 +108,18 @@ node -e "import('@wooki-drive/shared/node').then(m=>console.log(m.generateSecret
 ```
 
 ```bash
+npm run build --workspace apps/web     # 웹 화면 빌드 (gateway 가 서빙)
 npm run dev --workspace apps/agent     # 데스크탑
 npm run dev --workspace apps/gateway   # 파이
 ```
 
+로컬에서 OAuth 없이 둘러보려면 gateway `.env`에 `PUBLIC_ORIGIN=http://127.0.0.1:7400`, `COOKIE_SECURE=false`, `DEV_LOGIN=true`를 넣는다. 로그인 화면에 개발용 오너/게스트 버튼이 생긴다. 이 설정은 localhost가 아니면 서버가 시작을 거부한다.
+
+UI만 고칠 때는 `npm run dev --workspace apps/web`(Vite, 5173)로 띄우면 `/api`·`/auth`를 로컬 gateway로 넘긴다.
+
 ## 기술 스택
 
 - **Backend**: Node.js 22, Express 5 (ESM, JavaScript)
-- **Frontend**: Vite + React (예정)
+- **Frontend**: Vite + React 19 (외부 UI 라이브러리 없이 직접 구현)
 - **Infra**: Raspberry Pi 5 (Ubuntu), Windows 11, nginx, Cloudflare
 - **Test**: `node:test` — 실제 파일 시스템(윈도우 정션 포함)과 agent·gateway를 함께 띄운 통합 테스트

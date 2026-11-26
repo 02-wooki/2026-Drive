@@ -77,8 +77,19 @@ export function loadConfig(env = process.env) {
     if (!/^(kakao|google|github):[A-Za-z0-9_-]{1,128}$/.test(a)) throw new Error(`OWNER_ACCOUNTS 형식 오류: ${a}`);
   }
 
+  // 개발용 로그인: OAuth 없이 역할을 골라 로그인. localhost + http 에서만 허용 (운영 설정이면 시작 자체를 거부)
+  const devLogin = env.DEV_LOGIN === 'true';
+  if (devLogin) {
+    const host = new URL(publicOrigin).hostname;
+    if (cookieSecure || !['localhost', '127.0.0.1'].includes(host)) {
+      throw new Error('DEV_LOGIN 은 PUBLIC_ORIGIN 이 http://localhost 이고 COOKIE_SECURE=false 일 때만 쓸 수 있습니다');
+    }
+  }
+
   return {
     envFile,
+    devLogin,
+    webDist: path.resolve(env.WEB_DIST ?? path.join(here, '..', '..', 'web', 'dist')),
     oauth,
     ownerAccounts,
     passkeyFile: path.join(dataDir, 'passkeys.json'),

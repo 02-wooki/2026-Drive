@@ -135,7 +135,8 @@ async function login(provider, code, extraCookies = {}) {
 const me = async (sid) => (await req('/api/me', { cookies: { [SID]: sid } })).json();
 
 test('providers list and authorize redirect', async () => {
-  assert.deepEqual(await (await req('/auth/providers')).json(), { providers: ['google', 'github'] });
+  assert.deepEqual(await (await req('/auth/providers')).json(), { providers: ['google', 'github'], devLogin: false });
+  assert.equal((await req('/auth/dev/login', { method: 'POST', body: { role: 'owner' } })).status, 404); // 개발 로그인 미마운트
 
   const r = await req('/auth/github/start');
   const loc = new URL(r.headers.get('location'));
@@ -313,6 +314,12 @@ test('config validation', () => {
   assert.throws(() => loadConfig({ ...base, OAUTH_GOOGLE_CLIENT_ID: 'id' }), /SECRET/);
   assert.doesNotThrow(() => loadConfig({ ...base, OAUTH_KAKAO_CLIENT_ID: 'id' })); // 카카오는 secret 선택
   assert.throws(() => loadConfig({ ...base, COOKIE_SECURE: 'false' }), /COOKIE_SECURE/);
+
+  // 개발 로그인은 localhost + http 에서만
+  assert.throws(() => loadConfig({ ...base, DEV_LOGIN: 'true' }), /DEV_LOGIN/);
+  assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://192.168.0.5:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }), /DEV_LOGIN/);
+  assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', DEV_LOGIN: 'true' }), /DEV_LOGIN/); // Secure 쿠키
+  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }).devLogin, true);
 });
 
 test('cleanNickname', () => {

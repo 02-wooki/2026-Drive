@@ -1,0 +1,112 @@
+import { useEffect, useState } from 'react';
+import { startAuthentication, startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
+import { api } from '../api.js';
+import { messageFor } from '../messages.js';
+import { AppMark } from '../browser/icons.jsx';
+
+/** 브라우저 WebAuthn 오류 → 코드 */
+function webauthnError(e) {
+  if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') return { code: 'PASSKEY_CANCELLED' };
+  if (e?.code) return e; // ApiError
+  return { code: 'PASSKEY_FAILED' };
+}
+
+/** @param {{ onDone: () => void }} props */
+export function PasskeyPage({ onDone }) {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const supported = browserSupportsWebAuthn();
+
+  useEffect(() => {
+    document.title = '본인 확인 — Wooki Drive';
+    api.passkey
+      .status()
+      .then(setStatus)
+      .catch((e) => setError(e));
+  }, []);
+
+  async function run(kind) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (kind === 'login') {
+        const optionsJSON = await api.passkey.loginOptions();
+        await api.passkey.loginVerify(await startAuthentication({ optionsJSON }));
+      } else {
+        const optionsJSON = await api.passkey.registerOptions();
+        await api.passkey.registerVerify(await startRegistration({ optionsJSON }));
+      }
+      onDone();
+    } catch (e) {
+      setError(webauthnError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const expired = status && !status.pending;
+
+  return (
+    <main className="login">
+      <section className="login-card" aria-labelledby="passkey-title">
+        <AppMark className="login-mark" />
+        <h1 id="passkey-title">본인 확인</h1>
+
+        {!supported && (
+          <p className="notice notice-error" role="alert">
+            {messageFor('PASSKEY_UNSUPPORTED')}
+          </p>
+        )}
+        {error && (
+          <p className="notice notice-error" role="alert">
+            {messageFor(error)}
+          </p>
+        )}
+
+        {status === null && !error && <div className="login-skeleton" aria-busy="true" />}
+
+        {status?.canLogin && (
+          <>
+            <p className="login-lede">오너 계정이에요. 등록한 패스키(Touch ID 등)로 한 번 더 확인할게요.</p>
+            <div className="login-buttons">
+              <button type="button" className="btn btn-primary btn-large" disabled={busy || !supported} onClick={() => run('login')}>
+                {busy ? '확인 중…' : '패스키로 확인'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {status?.canRegister && (
+          <>
+            <p className="login-lede">
+              처음 로그인했어요. 이 기기에 패스키를 등록하면 다음부터는 Touch ID로 확인해요.
+              <br />
+              <strong>최초 등록은 한 번만 가능해요.</strong> 이후 기기 추가는 로그인한 상태에서만 할 수 있어요.
+            </p>
+            <div className="login-buttons">
+              <button type="button" className="btn btn-primary btn-large" disabled={busy || !supported} onClick={() => run('register')}>
+                {busy ? '등록 중…' : '패스키 등록'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {expired && <p className="login-lede">확인 시간이 지났어요. 처음부터 다시 로그인해 주세요.</p>}
+
+        <p className="login-guest-note">
+          <a
+            href="/login"
+            onClick={async (e) => {
+              e.preventDefault();
+              await api.logout().catch(() => {});
+              location.assign('/login');
+            }}
+          >
+            다른 계정으로 로그인
+          </a>
+        </p>
+      </section>
+    </main>
+  );
+}

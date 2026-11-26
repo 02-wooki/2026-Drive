@@ -118,13 +118,19 @@ export function safeContentType(contentType, disposition) {
   return 'application/octet-stream';
 }
 
-/** 파일 응답 공통 헤더. sandbox CSP 로 혹시 렌더링돼도 스크립트가 돌지 않게. PDF 뷰어는 sandbox 에서 막히므로 예외. */
+/**
+ * 파일 응답 공통 헤더. sandbox CSP 로 혹시 렌더링돼도 스크립트가 돌지 않게. PDF 뷰어는 sandbox 에서 막히므로 예외.
+ * Quick Look 이 PDF 를 iframe 으로 띄우므로 같은 출처 안에서만 프레임 허용 (다른 사이트는 불가).
+ */
 export function fileSecurityHeaders(res, contentType) {
   const isPdf = contentType.startsWith('application/pdf');
   res.set(
     'Content-Security-Policy',
-    isPdf ? "default-src 'none'; object-src 'self'" : "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+    isPdf
+      ? "default-src 'none'; object-src 'self'; frame-ancestors 'self'"
+      : "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
   );
+  res.set('X-Frame-Options', 'SAMEORIGIN');
   res.set('Cross-Origin-Resource-Policy', 'same-origin');
   res.set('X-Content-Type-Options', 'nosniff');
 }

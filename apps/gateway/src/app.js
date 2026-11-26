@@ -3,6 +3,8 @@ import express from 'express';
 import { apiRouter } from './routes.js';
 import { oauthRouter } from './auth/oauth.js';
 import { passkeyRouter } from './auth/passkeys.js';
+import { devLoginRouter } from './auth/dev-login.js';
+import { webRouter } from './web.js';
 import { RateLimiter } from './rate-limit.js';
 import { securityHeaders, noStore, loadSession, csrfGuard, toHttpError } from './http.js';
 
@@ -52,6 +54,9 @@ export function createApp(deps) {
       log,
     }),
   );
+  if (deps.devLogin) {
+    app.use('/auth/dev', noStore, csrfGuard(publicOrigin), devLoginRouter({ store, sessionTtl: deps.session, cookieSecure, log }));
+  }
   app.use(
     '/auth',
     oauthRouter({
@@ -62,6 +67,7 @@ export function createApp(deps) {
       sessionTtl: deps.session,
       store,
       limiter: loginLimiter,
+      devLogin: deps.devLogin,
       fetch: deps.fetch,
       now: deps.now,
       log,
@@ -71,7 +77,8 @@ export function createApp(deps) {
   // ── API ──
   app.use('/api', noStore, csrfGuard(publicOrigin), apiRouter({ agent, monitor, store, demoRoot, cookieSecure }));
 
-  // TODO: apps/web 빌드 산출물 정적 서빙 (/, /login, /login/passkey 등)
+  // ── 웹 화면 (SPA) ──
+  if (deps.webDist) app.use(webRouter({ webDist: deps.webDist, log }));
 
   app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
 

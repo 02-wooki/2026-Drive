@@ -40,7 +40,7 @@ function stateCookie(value, { secure, maxAgeSec }) {
  *   fetch?: typeof fetch, now?: () => number, log?: (m: string) => void,
  * }} deps
  */
-export function oauthRouter({ publicOrigin, cookieSecure, oauth, ownerAccounts, sessionTtl, store, limiter, fetch: f = fetch, now = Date.now, log = () => {} }) {
+export function oauthRouter({ publicOrigin, cookieSecure, oauth, ownerAccounts, sessionTtl, store, limiter, devLogin = false, fetch: f = fetch, now = Date.now, log = () => {} }) {
   const router = express.Router();
   /** @type {Map<string, { provider: string, verifier: string | null, expiresAt: number }>} */
   const pending = new Map();
@@ -51,7 +51,7 @@ export function oauthRouter({ publicOrigin, cookieSecure, oauth, ownerAccounts, 
 
   router.get('/providers', (_req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ providers: Object.keys(PROVIDERS).filter(enabled) });
+    res.json({ providers: Object.keys(PROVIDERS).filter(enabled), devLogin: Boolean(devLogin) });
   });
 
   router.get('/:provider/start', limiter.middleware('LOGIN_RATE_LIMITED'), (req, res) => {
