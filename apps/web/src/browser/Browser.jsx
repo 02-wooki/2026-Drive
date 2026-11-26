@@ -10,7 +10,7 @@
 // 마우스: ⌘클릭 추가/해제, ⇧클릭 범위, 끌어서 폴더·경로 막대로 이동, 바탕화면 파일을 끌어다 놓아 업로드, 우클릭 메뉴.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, contentUrl, thumbUrl } from '../api.js';
+import { api, contentUrl, thumbUrl, zipUrl } from '../api.js';
 import { messageFor } from '../messages.js';
 import { uploads, collectDropped, collectPicked } from '../uploads.js';
 import { sortEntries, kindLabel, formatSize, formatDate, canPreview, kindOf } from './fileTypes.js';
@@ -211,6 +211,27 @@ export function Browser({ user, loc, navigate, onLogout }) {
   }, [lead, view]);
 
   // ── 동작 ──
+  /**
+   * 내려받기: 파일 하나는 그대로, 폴더나 여러 항목은 zip.
+   * 브라우저 다운로드는 오류 응답을 화면에 띄워 버리므로, 먼저 가볍게 확인(데스크탑 꺼짐·세션 만료)하고 넘긴다.
+   */
+  const download = useCallback(
+    async (entries) => {
+      const list = entries.filter((e) => e.addressable && (e.type === 'file' || e.type === 'dir'));
+      if (!list.length) return;
+      const single = list.length === 1 && list[0].type === 'file';
+      const url = single ? contentUrl(source, list[0].path, 'attachment') : zipUrl(source, list.map((e) => e.path));
+      if (url.length > 6000) return notify({ kind: 'error', text: '한 번에 고른 항목이 너무 많아요. 폴더째로 내려받아 보세요.' });
+      try {
+        await api.stat(source, list[0].path);
+      } catch (e) {
+        return notify({ kind: 'error', text: messageFor(e) });
+      }
+      location.assign(url);
+    },
+    [source, notify],
+  );
+
   const open = useCallback(
     (entry) => {
       if (!entry || !entry.addressable) return;
@@ -218,9 +239,9 @@ export function Browser({ user, loc, navigate, onLogout }) {
       if (entry.type !== 'file') return;
       selectOnly(entry.path);
       if (canPreview(entry)) setQuickLook(true);
-      else location.assign(contentUrl(source, entry.path, 'attachment'));
+      else download([entry]);
     },
-    [go, source, selectOnly],
+    [go, source, selectOnly, download],
   );
 
   const failMsg = (results, verb) => {
@@ -517,8 +538,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
       items.push({ label: '열기', shortcut: `${MOD}↓`, run: () => open(entry), disabled: many });
       if (entry.type === 'file') {
         items.push({ label: '훑어보기', shortcut: 'Space', run: () => (selectOnly(entry.path), setQuickLook(true)), disabled: many || !canPreview(entry) });
-        // 다운로드도 클릭한 항목 기준
-        items.push({ label: '다운로드', run: () => location.assign(contentUrl(source, entry.path, 'attachment')), disabled: many });
+      }
+      if (entry.type === 'file' || entry.type === 'dir') {
+        const targets = many ? selEntries : [entry];
+        const zip = targets.length > 1 || entry.type === 'dir';
+        items.push({ label: many ? `${targets.length}개 항목 내려받기 (zip)` : zip ? 'zip으로 내려받기' : '내려받기', run: () => download(targets) });
       }
       if (writable) {
         items.push('sep');
@@ -665,15 +689,16 @@ export function Browser({ user, loc, navigate, onLogout }) {
               <button type="button" className="icon-btn" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), setQuickLook(true))} title="훑어보기 (Space)" aria-label="훑어보기">
                 <Glyph name="eye" />
               </button>
-              <a
-                className={`icon-btn ${oneFile ? '' : 'is-disabled'}`}
-                href={oneFile ? contentUrl(source, oneFile.path, 'attachment') : undefined}
-                title="다운로드"
-                aria-label="다운로드"
-                aria-disabled={!oneFile}
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={!selEntries.some((e) => e.type === 'file' || e.type === 'dir')}
+                onClick={() => download(selEntries)}
+                title={oneFile ? '내려받기' : '내려받기 (폴더·여러 항목은 zip)'}
+                aria-label="내려받기"
               >
                 <Glyph name="download" />
-              </a>
+              </button>
             </div>
           )}
         </header>

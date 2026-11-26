@@ -4,6 +4,7 @@ export * from './fs-path.js';
 export * from './fs-browse.js';
 export * from './fs-write.js';
 export * from './uploads.js';
+export * from './zip.js';
 export * from './secret.js';
 export * from './hmac.js';
 export * from './token.js';

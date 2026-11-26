@@ -62,6 +62,7 @@ export const api = {
 
   /** @param {Source} source */
   list: (source, path) => request('GET', `/api/${source}/list?${q(path)}`),
+  stat: (source, path) => request('GET', `/api/${source}/stat?${q(path)}`),
 
   // ── 쓰기 (오너, 데스크탑) ──
   mkdir: (parent, name, onConflict = 'rename') => request('POST', '/api/files/mkdir', { parent, name, onConflict }),
@@ -90,6 +91,15 @@ export const api = {
     loginVerify: (response) => request('POST', '/auth/passkey/login/verify', response),
   },
 };
+
+/**
+ * 폴더·여러 항목 zip 다운로드 URL. 모두 같은 폴더 안 항목이어야 한다.
+ * @param {Source} source
+ * @param {string[]} paths
+ */
+export function zipUrl(source, paths) {
+  return `/api/${source}/zip?${paths.map(q).join('&')}`;
+}
 
 /**
  * 파일 내용 URL (img/video src, 다운로드 링크).

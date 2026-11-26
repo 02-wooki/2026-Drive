@@ -9,6 +9,7 @@
 //   GET  /api/files/stat?path=
 //   GET  /api/files/content?path=&disposition=inline|attachment
 //   GET  /api/files/thumb?path=&w=&v=          썸네일 (파이에 캐시)
+//   GET  /api/files/zip?path=&path=…           폴더·여러 항목 zip 다운로드 (agent 가 만들고 그대로 파이프)
 //   POST /api/files/{mkdir,rename,move,trash}  GET|POST /api/files/trash[/restore]
 //   POST /api/files/trash/{delete,empty}       ← 패스키 재인증(1회용) 필요
 //   POST /api/files/uploads  GET|PUT|DELETE /api/files/uploads/:id  POST /api/files/uploads/:id/complete
@@ -17,10 +18,13 @@
 //   GET  /api/demo/list?path=
 //   GET  /api/demo/stat?path=
 //   GET  /api/demo/content?path=&disposition=
+//   GET  /api/demo/zip?path=&path=…
 
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import express from 'express';
 import mime from 'mime-types';
-import { normalizeVirtualPath, listDirectory, statPath, contentDisposition, ROLES, MAX_CHUNK_REQUEST_BYTES } from '@wooki-drive/shared/node';
+import { normalizeVirtualPath, listDirectory, statPath, contentDisposition, ROLES, MAX_CHUNK_REQUEST_BYTES, planZip, zipStream, zipEntriesFor } from '@wooki-drive/shared/node';
 import { requireRole, requireStepUp, HttpError, safeContentType, fileSecurityHeaders, parseDisposition } from './http.js';
 import { sessionCookie } from './sessions.js';
 import { RateLimiter } from './rate-limit.js';
@@ -100,6 +104,13 @@ export function apiRouter({
     };
     res.set('Cache-Control', 'private, no-cache');
     await agent.pipeFile(req, res, `/v1/file?${q(req.query.path)}&disposition=${disposition}`, policy);
+  });
+
+  files.get('/zip', async (req, res) => {
+    const { vpaths } = planZip(req.query.path); // 형식 검사는 여기서도(이중 방어), 이름은 agent 가 정한다
+    fileSecurityHeaders(res, 'application/zip');
+    res.set('Cache-Control', 'no-store');
+    await agent.pipeFile(req, res, `/v1/zip?${vpaths.map(q).join('&')}`, () => 'application/zip');
   });
 
   // 썸네일: ?path=&w=&v=<수정시각-크기>. 캐시 적중이면 데스크탑이 꺼져 있어도 응답한다.
@@ -235,6 +246,19 @@ export function apiRouter({
         if (err && !res.headersSent) next(err);
       },
     );
+  });
+
+  demo.get('/zip', async (req, res) => {
+    const { vpaths, filename } = planZip(req.query.path);
+    for (const p of vpaths) await statPath(demoRoot, p);
+    fileSecurityHeaders(res, 'application/zip');
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', contentDisposition('attachment', filename));
+    try {
+      await pipeline(Readable.from(zipStream(zipEntriesFor(demoRoot, vpaths))), res);
+    } catch {
+      res.destroy();
+    }
   });
 
   api.use('/demo', demo);

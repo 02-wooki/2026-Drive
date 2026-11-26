@@ -1,6 +1,7 @@
 // gateway ↔ 실제 agent 앱을 함께 띄운 통합 테스트.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readZip } from '../../../packages/shared/test/zip-reader.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -201,4 +202,45 @@ test('CSRF: state-changing requests need our Origin', async () => {
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get('set-cookie'), /Max-Age=0/);
   assert.equal(store.get(id), null);
+});
+
+test('zip download: owner via agent, guest via demo, roles enforced', async () => {
+  const r = await get(`/api/files/zip${q('/문서')}`, ownerCookie);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'application/zip');
+  assert.match(r.headers.get('content-disposition'), /^attachment;.*filename\*=UTF-8''%EB%AC%B8%EC%84%9C\.zip$/);
+  assert.match(r.headers.get('content-security-policy'), /sandbox/);
+  assert.deepEqual(
+    readZip(Buffer.from(await r.arrayBuffer())).entries.map((e) => e.name),
+    ['문서/'], // 빈 폴더도 항목으로 남는다
+  );
+
+  const multi = await get(`/api/files/zip?path=${encodeURIComponent('/hello.txt')}&path=${encodeURIComponent('/문서')}`, ownerCookie);
+  assert.equal(multi.status, 200);
+  assert.match(multi.headers.get('content-disposition'), /filename="Drive\.zip"/);
+  assert.deepEqual(
+    readZip(Buffer.from(await multi.arrayBuffer())).entries.map((e) => [e.name, e.data.toString()]),
+    [
+      ['hello.txt', 'hello world'],
+      ['문서/', ''],
+    ],
+  );
+
+  const mixed = await get(`/api/files/zip?path=${encodeURIComponent('/hello.txt')}&path=${encodeURIComponent('/문서/x')}`, ownerCookie);
+  assert.equal(mixed.status, 400);
+  assert.deepEqual(await mixed.json(), { error: 'MIXED_PARENTS' });
+  assert.equal((await get(`/api/files/zip${q('/../x')}`, ownerCookie)).status, 400);
+
+  assert.equal((await get(`/api/files/zip${q('/문서')}`, guestCookie)).status, 403);
+  assert.equal((await get(`/api/demo/zip${q('/샘플')}`)).status, 401);
+  const demo = await get(`/api/demo/zip${q('/샘플')}`, guestCookie);
+  assert.equal(demo.status, 200);
+  const { entries } = readZip(Buffer.from(await demo.arrayBuffer()));
+  assert.deepEqual(
+    entries.map((e) => [e.name, e.data.toString()]),
+    [
+      ['샘플/', ''],
+      ['샘플/a.txt', 'demo file'],
+    ],
+  );
 });

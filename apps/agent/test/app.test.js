@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { signRequest, toKeyList, contentDisposition } from '@wooki-drive/shared/node';
 import { createApp } from '../src/app.js';
+import { readZip } from '../../../packages/shared/test/zip-reader.js';
 
 const SECRET = 's'.repeat(48);
 const linkType = process.platform === 'win32' ? 'junction' : 'dir';
@@ -170,4 +171,54 @@ test('ip allowlist', async () => {
   } finally {
     s.close();
   }
+});
+
+test('zip: folder streams as a valid zip, links and system folder excluded', async () => {
+  const r = await signedGet(`/v1/zip${q('/사진')}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'application/zip');
+  assert.equal(r.headers.get('content-disposition'), contentDisposition('attachment', '사진.zip'));
+  const { entries } = readZip(Buffer.from(await r.arrayBuffer()));
+  assert.deepEqual(
+    entries.map((e) => e.name),
+    ['사진/', '사진/2024/', '사진/바다.jpg'],
+  );
+  assert.ok(entries[2].data.equals(Buffer.alloc(1000, 7)));
+
+  // 루트 전체: .wooki(휴지통·업로드 임시), 링크(escape, photos-link), .DS_Store 제외
+  fs.writeFileSync(path.join(root, '.wooki', 'trash', 'leak.txt'), 'TRASHED');
+  const all = await signedGet(`/v1/zip${q('/')}`);
+  const buf = Buffer.from(await all.arrayBuffer());
+  assert.deepEqual(
+    readZip(buf).entries.map((e) => e.name),
+    ['Drive/', 'Drive/hello.txt', 'Drive/사진/', 'Drive/사진/2024/', 'Drive/사진/바다.jpg'],
+  );
+  assert.ok(!buf.includes(Buffer.from('TRASHED')));
+  assert.ok(!buf.includes(Buffer.from('secret')));
+  fs.rmSync(path.join(root, '.wooki', 'trash', 'leak.txt'));
+});
+
+test('zip: multiple items, bad selections', async () => {
+  const r = await signedGet(`/v1/zip?path=${encodeURIComponent('/hello.txt')}&path=${encodeURIComponent('/사진/바다.jpg')}`);
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'MIXED_PARENTS' });
+
+  const ok = await signedGet(`/v1/zip?path=${encodeURIComponent('/hello.txt')}&path=${encodeURIComponent('/사진')}`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('content-disposition'), contentDisposition('attachment', 'Drive.zip'));
+  assert.deepEqual(
+    readZip(Buffer.from(await ok.arrayBuffer())).entries.map((e) => e.name),
+    ['hello.txt', '사진/', '사진/2024/', '사진/바다.jpg'],
+  );
+
+  for (const [p, code] of [
+    ['/없음', 'NOT_FOUND'],
+    ['/.wooki', 'PATH_RESERVED'],
+    ['/escape', 'PATH_OUTSIDE_ROOT'],
+  ]) {
+    const bad = await signedGet(`/v1/zip${q(p)}`);
+    assert.equal(bad.status >= 400, true, p);
+    assert.deepEqual(await bad.json(), { error: code }, p);
+  }
+  assert.equal((await fetch(`${base}/v1/zip${q('/사진')}`)).status, 401);
 });

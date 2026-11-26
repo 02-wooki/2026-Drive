@@ -6,6 +6,7 @@
 // GET  /v1/stat?path=/a/b.jpg          메타데이터
 // GET  /v1/file?path=&disposition=     파일 내용. Range / If-None-Match 지원
 // GET  /v1/thumb?path=&w=128|256|512   WebP 썸네일 + X-Thumb-Version
+// GET  /v1/zip?path=&path=…            폴더·여러 항목을 zip 으로 스트리밍 (같은 폴더 안 항목만, 시스템 폴더 제외)
 // ── 쓰기 (JSON 본문, 본문 해시 서명 필수) ──
 // POST /v1/mkdir        { parent, name, onConflict? }        → { path }
 // POST /v1/rename       { path, name }                        → { path }
@@ -28,6 +29,8 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import express from 'express';
 import {
   listDirectory,
@@ -53,6 +56,10 @@ import {
   sha256Hex,
   SYSTEM_DIR_NAME,
   UPLOAD_CHUNK_SIZE,
+  planZip,
+  zipStream,
+  zipEntriesFor,
+  isInside,
 } from '@wooki-drive/shared/node';
 import { ipAllowlist, requireSignature } from './auth.js';
 import { HttpError, toHttpError } from './http-error.js';
@@ -188,6 +195,25 @@ export function createApp({
     res.set('Content-Type', 'image/webp');
     res.set('X-Thumb-Version', `${Math.floor(info.mtimeMs)}-${info.size}`);
     res.send(buf);
+  });
+
+  // 폴더 zip: 크기를 미리 알 수 없어 chunked 로 보낸다. 중간에 읽기가 실패하면 연결을 끊어 깨진 zip 이 정상처럼 저장되지 않게 한다.
+  v1.get('/zip', async (req, res) => {
+    const { vpaths, filename } = planZip(req.query.path);
+    for (const p of vpaths) {
+      if (p !== '/') assertNotReserved(p);
+      await statPath(driveRoot, p); // 없으면 스트림 시작 전에 404
+    }
+    const realSystem = fs.realpathSync(dirs.base);
+    const skipDir = (real) => isInside(realSystem, real);
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', contentDisposition('attachment', filename));
+    try {
+      await pipeline(Readable.from(zipStream(zipEntriesFor(driveRoot, vpaths, { skipDir }))), res);
+    } catch (err) {
+      if (err?.code !== 'ERR_STREAM_PREMATURE_CLOSE') log(`zip failed: ${err?.message ?? err}`);
+      res.destroy();
+    }
   });
 
   // ── 쓰기 ──
