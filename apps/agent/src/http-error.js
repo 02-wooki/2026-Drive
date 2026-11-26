@@ -1,4 +1,4 @@
-import { PathError } from '@wooki-drive/shared/node';
+import { PathError, BrowseError } from '@wooki-drive/shared/node';
 
 export class HttpError extends Error {
   /** @param {number} status @param {string} code */
@@ -13,6 +13,7 @@ export class HttpError extends Error {
 export function toHttpError(err) {
   if (err instanceof HttpError) return err;
   if (err instanceof PathError) return new HttpError(400, `PATH_${err.code}`);
+  if (err instanceof BrowseError) return new HttpError(err.status, err.code);
   switch (err?.code) {
     case 'ENOENT':
     case 'ENOTDIR':

@@ -9,7 +9,7 @@
 // 응답 보안 헤더(CSP 등)는 브라우저와 맞닿은 gateway 가 최종 책임진다. agent 는 nosniff 만 기본으로 단다.
 
 import express from 'express';
-import { listDirectory, statPath, contentDisposition } from './files.js';
+import { listDirectory, statPath, contentDisposition } from '@wooki-drive/shared/node';
 import { ipAllowlist, requireSignature } from './auth.js';
 import { HttpError, toHttpError } from './http-error.js';
 

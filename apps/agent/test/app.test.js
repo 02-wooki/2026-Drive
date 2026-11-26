@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { signRequest, toKeyList } from '@wooki-drive/shared/node';
+import { signRequest, toKeyList, contentDisposition } from '@wooki-drive/shared/node';
 import { createApp } from '../src/app.js';
-import { contentDisposition } from '../src/files.js';
 
 const SECRET = 's'.repeat(48);
 const linkType = process.platform === 'win32' ? 'junction' : 'dir';

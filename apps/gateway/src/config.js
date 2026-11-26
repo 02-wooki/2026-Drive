@@ -1,0 +1,74 @@
+// gateway 설정 로드. 값은 환경변수(또는 env 파일)에서만 읽는다 — 하드코딩 금지 (ai.md §9).
+//
+// env 파일 위치 우선순위:
+//   1) WOOKI_GATEWAY_ENV_FILE
+//   2) /etc/wooki-drive/gateway.env  (파이 운영, systemd)
+//   3) apps/gateway/.env             (개발)
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { toKeyList } from '@wooki-drive/shared/node';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+function findEnvFile() {
+  const candidates = [
+    process.env.WOOKI_GATEWAY_ENV_FILE,
+    '/etc/wooki-drive/gateway.env',
+    path.join(here, '..', '.env'),
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) ?? null;
+}
+
+function required(env, name) {
+  const v = env[name];
+  if (!v) throw new Error(`환경변수 ${name} 가 필요합니다`);
+  return v;
+}
+
+function port(value, fallback, name) {
+  const n = Number(value ?? fallback);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`${name} 가 올바르지 않습니다`);
+  return n;
+}
+
+const HOUR = 3600_000;
+
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function loadConfig(env = process.env) {
+  let envFile = null;
+  if (env === process.env) {
+    envFile = findEnvFile();
+    if (envFile) process.loadEnvFile(envFile);
+  }
+
+  const publicOrigin = new URL(required(env, 'PUBLIC_ORIGIN')).origin; // 예: https://drive.wooki.cloud
+  const agentUrl = new URL(required(env, 'AGENT_URL')); // 예: http://192.168.0.20:7401
+  if (agentUrl.protocol !== 'http:') throw new Error('AGENT_URL 은 http:// (LAN) 이어야 합니다');
+
+  const dataDir = path.resolve(required(env, 'DATA_DIR')); // 예: /var/lib/wooki-drive
+  const cookieSecure = env.COOKIE_SECURE !== 'false';
+  if (!cookieSecure && publicOrigin.startsWith('https:')) {
+    throw new Error('https 운영에서 COOKIE_SECURE=false 는 허용되지 않습니다');
+  }
+
+  return {
+    envFile,
+    host: env.GATEWAY_HOST ?? '127.0.0.1', // nginx 뒤에서만 받는다
+    port: port(env.GATEWAY_PORT, 7400, 'GATEWAY_PORT'),
+    publicOrigin,
+    agentUrl: agentUrl.origin,
+    agentSecrets: toKeyList(required(env, 'AGENT_HMAC_SECRET').split(',').map((s) => s.trim())),
+    dataDir,
+    demoRoot: path.resolve(env.DEMO_ROOT ?? path.join(dataDir, 'demo')),
+    sessionFile: path.join(dataDir, 'sessions', 'sessions.json'),
+    cookieSecure,
+    session: {
+      owner: { absoluteMs: 12 * HOUR, idleMs: 2 * HOUR },
+      guest: { absoluteMs: 7 * 24 * HOUR, idleMs: 24 * HOUR },
+    },
+  };
+}

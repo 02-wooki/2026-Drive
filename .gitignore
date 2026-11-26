@@ -1,7 +1,7 @@
 node_modules/
 dist/
-.env
-.env.*
+**/.env
+**/.env.*
 !.env.example
 *.log
 .DS_Store
@@ -11,6 +11,6 @@ data/
 certs/
 # idea, OS
 .idea
-*/.DS_Store
+**/.DS_Store
 # AI
 ai.md

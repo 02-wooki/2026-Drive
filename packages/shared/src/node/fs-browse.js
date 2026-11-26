@@ -1,17 +1,25 @@
-// D:\Drive 읽기 작업: 목록, 메타데이터. 모든 경로는 resolveInRootReal 을 거친다.
+// 읽기 전용 탐색: 폴더 목록·메타데이터. agent(D:\Drive)와 gateway(데모 폴더)가 같은 로직을 쓴다.
+// 모든 경로는 resolveInRootReal 을 거친다.
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import {
-  resolveInRootReal,
-  parseVirtualPath,
-  formatVirtualPath,
-  checkSegment,
-  PathError,
-} from '@wooki-drive/shared/node';
-import { HttpError } from './http-error.js';
+import { resolveInRootReal } from './fs-path.js';
+import { parseVirtualPath, formatVirtualPath, checkSegment, PathError } from '../virtual-path.js';
+
+/** 경로 형식은 맞지만 대상 상태가 요청과 맞지 않을 때. status 는 HTTP 매핑용. */
+export class BrowseError extends Error {
+  /** @param {string} code @param {number} status */
+  constructor(code, status) {
+    super(code);
+    this.name = 'BrowseError';
+    this.code = code;
+    this.status = status;
+  }
+}
 
 /** 맥·윈도우가 만드는 부수 파일. 숨김 표시만 하고 목록에서 빼지는 않는다(판단은 UI). */
 const JUNK_NAMES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
+
+const isHidden = (name) => name.startsWith('.') || JUNK_NAMES.has(name);
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
@@ -48,13 +56,7 @@ function typeOf(stat) {
 async function describeChild(root, parentSegs, parentReal, name) {
   const addressable = checkSegment(name) === null;
   const vpath = addressable ? formatVirtualPath([...parentSegs, name]) : null;
-  const base = {
-    name,
-    path: vpath,
-    link: false,
-    hidden: name.startsWith('.') || JUNK_NAMES.has(name),
-    addressable,
-  };
+  const base = { name, path: vpath, link: false, hidden: isHidden(name), addressable };
 
   let lst;
   try {
@@ -86,20 +88,23 @@ async function describeChild(root, parentSegs, parentReal, name) {
 export async function listDirectory(root, vpath) {
   const segs = parseVirtualPath(vpath);
   const { realPath, exists } = await resolveInRootReal(root, vpath);
-  if (!exists) throw new HttpError(404, 'NOT_FOUND');
+  if (!exists) throw new BrowseError('NOT_FOUND', 404);
   const st = await fsp.stat(realPath);
-  if (!st.isDirectory()) throw new HttpError(400, 'NOT_A_DIRECTORY');
+  if (!st.isDirectory()) throw new BrowseError('NOT_A_DIRECTORY', 400);
 
   const names = await fsp.readdir(realPath);
   const entries = await mapLimit(names, 32, (name) => describeChild(root, segs, realPath, name));
   return { path: formatVirtualPath(segs), entries: entries.filter(Boolean) };
 }
 
-/** @returns {Promise<Entry & { realPath: string }>} */
+/**
+ * realPath 는 서버 내부용. 응답에 실을 때는 빼야 한다.
+ * @returns {Promise<Entry & { realPath: string }>}
+ */
 export async function statPath(root, vpath) {
   const segs = parseVirtualPath(vpath);
   const { realPath, exists } = await resolveInRootReal(root, vpath);
-  if (!exists) throw new HttpError(404, 'NOT_FOUND');
+  if (!exists) throw new BrowseError('NOT_FOUND', 404);
   const st = await fsp.stat(realPath);
   const name = segs.at(-1) ?? '';
   return {
@@ -109,7 +114,7 @@ export async function statPath(root, vpath) {
     size: st.isFile() ? st.size : null,
     mtimeMs: st.mtimeMs,
     link: false,
-    hidden: name.startsWith('.') || JUNK_NAMES.has(name),
+    hidden: isHidden(name),
     addressable: true,
     realPath,
   };
