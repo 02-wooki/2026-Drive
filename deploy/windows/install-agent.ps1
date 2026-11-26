@@ -120,12 +120,21 @@ if ($devAgent) {
   Write-Warning "포트 $Port 를 이미 다른 프로그램(PID $($devAgent[0].OwningProcess))이 쓰고 있어요. 개발용 agent 라면 끈 뒤: Start-ScheduledTask $TaskName"
 } else {
   Start-ScheduledTask -TaskName $TaskName
-  Start-Sleep -Seconds 3
-  try {
-    $h = Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 5
-    Write-Host "agent 응답: $($h | ConvertTo-Json -Compress)" -ForegroundColor Green
-  } catch {
-    Write-Warning "agent 가 아직 응답하지 않아요. 로그: $Logs\agent.log"
+  # 이 PC 에서 확인하면 AGENT_ALLOWED_IPS(파이만) 때문에 403 IP_NOT_ALLOWED 가 정상이다 → 응답이 오기만 하면 실행 중
+  $running = $false
+  for ($i = 0; $i -lt 15 -and -not $running; $i++) {
+    Start-Sleep -Seconds 1
+    try {
+      Invoke-WebRequest "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 2 | Out-Null
+      $running = $true
+    } catch {
+      if ($_.Exception.Response) { $running = $true }
+    }
+  }
+  if ($running) {
+    Write-Host "agent 실행 중 (포트 $Port). 파이에서 확인: curl http://<이 PC IP>:$Port/health" -ForegroundColor Green
+  } else {
+    Write-Warning "agent 가 15초 안에 응답하지 않았어요. 로그: $Logs\agent.log"
   }
 }
 
