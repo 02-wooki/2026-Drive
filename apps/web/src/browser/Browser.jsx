@@ -11,6 +11,8 @@
 // 마우스: ⌘클릭 추가/해제, ⇧클릭 범위, 끌어서 폴더·경로 막대로 이동, 바탕화면 파일을 끌어다 놓아 업로드, 우클릭 메뉴.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startRegistration } from '@simplewebauthn/browser';
+import { withStepUp } from '../stepUp.js';
 import { api, contentUrl, zipUrl } from '../api.js';
 import { messageFor } from '../messages.js';
 import { uploads, collectDropped, collectPicked } from '../uploads.js';
@@ -451,6 +453,35 @@ export function Browser({ user, loc, navigate, onLogout }) {
     }
   }
 
+  /**
+   * 패스키 추가(다른 기기·보안 키). 기존 패스키로 재인증 → 새 기기로 등록.
+   * Safari 는 클릭 순간에만 WebAuthn 을 허용하므로, 등록은 확인 대화상자의 버튼 클릭 안에서 시작한다.
+   */
+  async function addPasskey() {
+    let optionsJSON;
+    try {
+      optionsJSON = await withStepUp(() => api.passkey.registerOptions());
+    } catch (e) {
+      return notify({ kind: 'error', text: messageFor(e) });
+    }
+    setConfirm({
+      title: '새 패스키 등록',
+      message: '다음 창에서 추가할 기기(다른 기기의 iCloud 키체인, 휴대폰, 보안 키 등)를 골라 주세요. 패스키를 모두 잃으면 파이에서 직접 복구해야 하니 2개 이상 등록해 두세요.',
+      confirmLabel: '등록',
+      run: () =>
+        startRegistration({ optionsJSON })
+          .then((r) => api.passkey.registerVerify(r))
+          .then(
+            () => notify({ text: '패스키를 추가했어요.' }),
+            (e) =>
+              notify({
+                kind: 'error',
+                text: messageFor(e?.name === 'NotAllowedError' || e?.name === 'AbortError' ? 'PASSKEY_CANCELLED' : e?.name === 'InvalidStateError' ? 'PASSKEY_ALREADY_REGISTERED' : e),
+              }),
+          ),
+    });
+  }
+
   const trashSelected = () => trashPaths(selEntries.map((e) => e.path));
 
   async function moveTo(paths, dest, onConflict = 'fail') {
@@ -797,6 +828,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
             <span className="sidebar-user-name">{user.nickname}</span>
             <span className="sidebar-user-role">{isOwner ? '오너' : '게스트'}</span>
           </div>
+          {isOwner && (
+            <button type="button" className="icon-btn" onClick={addPasskey} title="패스키 추가 (다른 기기)" aria-label="패스키 추가">
+              <Glyph name="key" />
+            </button>
+          )}
           <button type="button" className="icon-btn" onClick={onLogout} title="로그아웃" aria-label="로그아웃">
             <Glyph name="logout" />
           </button>

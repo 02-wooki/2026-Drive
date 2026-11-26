@@ -140,6 +140,12 @@ export function passkeyRouter({ publicOrigin, cookieSecure, sessionTtl, store, p
   router.post('/register/options', async (req, res) => {
     if (!canRegister(req.session)) throw new HttpError(403, 'PASSKEY_REGISTRATION_CLOSED');
     if (passkeys.count >= MAX_CREDENTIALS) throw new HttpError(409, 'PASSKEY_LIMIT');
+    // 기기 추가: 세션만 훔쳐서는 공격자 패스키를 심을 수 없도록 기존 패스키로 재인증(1회용 허가 소모, D16)
+    if (isOwner(req.session) && passkeys.count > 0) {
+      const su = req.session.stepUp;
+      if (!su || su.expiresAt <= now()) throw new HttpError(403, 'STEP_UP_REQUIRED');
+      store.update(req.sessionId, { stepUp: null });
+    }
     const options = await webauthn.generateRegistrationOptions({
       rpName: 'Wooki Drive',
       rpID,

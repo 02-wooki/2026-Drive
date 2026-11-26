@@ -43,6 +43,7 @@ const MESSAGES = {
   UPLOAD_INCOMPLETE: '업로드가 끝나지 않았어요.',
   UPLOAD_BUSY: '이 파일을 다른 곳에서 올리고 있어요.',
   UPLOAD_FAILED: '업로드에 실패했어요.',
+  PASSKEY_ALREADY_REGISTERED: '이 기기는 이미 등록되어 있어요. 다른 기기나 보안 키를 골라 주세요.',
   BUFFER_FULL: '파이 임시 보관함이 가득 찼어요. 데스크탑을 켜서 옮긴 뒤 다시 올려 주세요.',
   BUFFER_ITEM_NOT_FOUND: '보관함에 없는 항목이에요. 이미 데스크탑으로 옮겨졌을 수 있어요.',
   OFFLINE_READ_ONLY: '데스크탑이 꺼져 있어 지금은 열 수 없어요. 켜진 뒤에 다시 시도해 주세요.',

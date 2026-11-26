@@ -275,10 +275,18 @@ test('owner: registration closes after bootstrap; login requires passkey', async
   assert.equal((await me(owner)).user.role, 'owner');
   assert.equal(ctx.passkeys.find('cred-1').counter, 1);
 
-  // owner 는 기기 추가 등록 가능
+  // owner 의 기기 추가: 세션만으로는 불가(탈취된 세션이 공격자 패스키를 심지 못하게) → 기존 패스키로 재인증 후 1회
+  const noStepUp = await req('/auth/passkey/register/options', { method: 'POST', cookies: { [SID]: owner } });
+  assert.equal(noStepUp.status, 403);
+  assert.deepEqual(await noStepUp.json(), { error: 'STEP_UP_REQUIRED' });
+  const ro = await (await req('/auth/passkey/reauth/options', { method: 'POST', cookies: { [SID]: owner } })).json();
+  const reauth = await req('/auth/passkey/reauth/verify', { method: 'POST', cookies: { [SID]: owner }, body: { id: 'cred-1', challenge: ro.challenge } });
+  assert.equal(reauth.status, 200);
   const add = await req('/auth/passkey/register/options', { method: 'POST', cookies: { [SID]: owner } });
   assert.equal(add.status, 200);
   assert.deepEqual((await add.json()).excludeCredentials, [{ id: 'cred-1', transports: ['internal'] }]);
+  const addAgain = await req('/auth/passkey/register/options', { method: 'POST', cookies: { [SID]: owner } });
+  assert.equal(addAgain.status, 403, 'step-up is single use');
 
   // 게스트·비로그인은 패스키 로그인 시도 불가
   const guest = cookieValue(await login('github', 'code-guest'), SID);

@@ -1,0 +1,44 @@
+# Wooki Drive gateway — install.sh 가 @…@ 자리를 채워 /etc/systemd/system 에 복사한다.
+[Unit]
+Description=Wooki Drive gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@APP@
+Environment=NODE_ENV=production
+Environment=WOOKI_GATEWAY_ENV_FILE=@ENV@
+ExecStart=@NODE@ apps/gateway/src/server.js
+Restart=on-failure
+RestartSec=5
+# 종료 시 세션·목록 캐시를 기록할 시간
+TimeoutStopSec=15
+
+# ── 격리: 데이터 폴더 외에는 읽기 전용, 권한 상승 불가 ──
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@DATA@
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
