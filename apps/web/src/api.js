@@ -74,11 +74,20 @@ export const api = {
   trashDelete: (ids) => request('POST', '/api/files/trash/delete', { ids }),
   trashEmpty: () => request('POST', '/api/files/trash/empty', {}),
 
+  /** 업로드. target 'desktop' = 데스크탑으로 바로, 'buffer' = 파이 임시 보관함 (D3). 프로토콜은 같다. */
   uploads: {
-    create: (path, size, mtimeMs) => request('POST', '/api/files/uploads', { path, size, mtimeMs }),
-    status: (id) => request('GET', `/api/files/uploads/${encodeURIComponent(id)}`),
-    complete: (id) => request('POST', `/api/files/uploads/${encodeURIComponent(id)}/complete`, {}),
-    abort: (id) => request('DELETE', `/api/files/uploads/${encodeURIComponent(id)}`),
+    base: (target = 'desktop') => (target === 'buffer' ? '/api/buffer/uploads' : '/api/files/uploads'),
+    create: (path, size, mtimeMs, target) => request('POST', api.uploads.base(target), { path, size, mtimeMs }),
+    status: (id, target) => request('GET', `${api.uploads.base(target)}/${encodeURIComponent(id)}`),
+    complete: (id, target) => request('POST', `${api.uploads.base(target)}/${encodeURIComponent(id)}/complete`, {}),
+    abort: (id, target) => request('DELETE', `${api.uploads.base(target)}/${encodeURIComponent(id)}`),
+  },
+
+  /** 파이 임시 보관함 (오너) */
+  buffer: {
+    list: () => request('GET', '/api/buffer', undefined, { background: true }),
+    remove: (id) => request('DELETE', `/api/buffer/${encodeURIComponent(id)}`),
+    retry: (id) => request('POST', `/api/buffer/${encodeURIComponent(id)}/retry`),
   },
 
   passkey: {

@@ -114,6 +114,10 @@ export function loadConfig(env = process.env) {
     },
     thumbCacheDir: path.join(dataDir, 'cache', 'thumbs'),
     thumbCacheMaxBytes: Number(env.THUMB_CACHE_MAX_MB ?? 512) * 1024 * 1024,
+    metaCacheFile: path.join(dataDir, 'cache', 'folders.json'),
+    // D3·D9: 데스크탑이 꺼져 있을 때 오너가 고르면 파이에 임시 보관. 기본 20GB
+    bufferDir: path.join(dataDir, 'buffer'),
+    bufferMaxBytes: positive(env.BUFFER_MAX_GB, 20, 'BUFFER_MAX_GB') * 1024 ** 3,
     cookieSecure,
     session: {
       // D17: 무활동 10분 → 잠금(패스키만), 2시간 → 완전 만료. 불편하면 env 로 늘린다.

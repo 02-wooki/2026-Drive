@@ -14,6 +14,13 @@
 //   POST /api/files/trash/{delete,empty}       ← 패스키 재인증(1회용) 필요
 //   POST /api/files/uploads  GET|PUT|DELETE /api/files/uploads/:id  POST /api/files/uploads/:id/complete
 //
+//   ── owner 전용: 파이 임시 보관함 (데스크탑이 꺼져 있을 때, D3) ──
+//   GET  /api/buffer                            { items[], used, max, free }
+//   POST /api/buffer/uploads  GET|PUT|DELETE /api/buffer/uploads/:id  POST /api/buffer/uploads/:id/complete
+//   POST /api/buffer/:id/retry   DELETE /api/buffer/:id
+//
+//   데스크탑이 꺼져 있으면 /api/files/{list,stat} 은 마지막으로 본 목록을 { cached: true, cachedAt } 와 함께 돌려준다 (§4.2).
+//
 //   ── guest·owner: 파이의 데모 폴더 (읽기 전용) ──
 //   GET  /api/demo/list?path=
 //   GET  /api/demo/stat?path=
@@ -49,6 +56,8 @@ export function apiRouter({
   devLogin = false,
   now = Date.now,
   thumbs = null,
+  meta = null,
+  buffer = null,
   trashNotice = { days: 30, bytes: 10 * 1024 ** 3 },
 }) {
   const api = express.Router();
@@ -87,12 +96,43 @@ export function apiRouter({
   const files = express.Router();
   files.use(requireRole(ROLES.OWNER));
 
+  // 꺼져 있으면(503) 캐시된 목록으로. 캐시가 없으면 원래 오류 그대로.
+  const offlineFallback = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (meta && err?.code === 'AGENT_OFFLINE') {
+        const hit = fallback();
+        if (hit) return hit;
+      }
+      throw err;
+    }
+  };
+
   files.get('/list', async (req, res) => {
-    res.json(await agent.getJson(`/v1/list?${q(req.query.path)}`));
+    const vpath = normalizeVirtualPath(req.query.path);
+    const result = await offlineFallback(
+      () => agent.getJson(`/v1/list?${q(vpath)}`),
+      () => {
+        const c = meta.get(vpath);
+        return c && { path: vpath, entries: c.entries, cached: true, cachedAt: c.at };
+      },
+    );
+    if (meta && !result.cached) meta.put(result.path, result.entries);
+    res.json(result);
   });
 
   files.get('/stat', async (req, res) => {
-    res.json(await agent.getJson(`/v1/stat?${q(req.query.path)}`));
+    const vpath = normalizeVirtualPath(req.query.path);
+    res.json(
+      await offlineFallback(
+        () => agent.getJson(`/v1/stat?${q(vpath)}`),
+        () => {
+          const e = meta.stat(vpath);
+          return e && { ...e, cached: true };
+        },
+      ),
+    );
   });
 
   files.get('/content', async (req, res) => {
@@ -174,9 +214,14 @@ export function apiRouter({
   };
 
   files.post('/mkdir', json, fwd('POST', () => '/v1/mkdir', only('parent', 'name', 'onConflict')));
-  files.post('/rename', json, fwd('POST', () => '/v1/rename', only('path', 'name')));
-  files.post('/move', json, fwd('POST', () => '/v1/move', only('paths', 'to', 'onConflict')));
-  files.post('/trash', json, fwd('POST', () => '/v1/trash', only('paths')));
+  // 경로가 바뀌는 작업은 목록 캐시에서 그 경로를 버린다
+  const forget = (pick) => (req, _res, next) => {
+    meta?.invalidate(pick(req.body ?? {}));
+    next();
+  };
+  files.post('/rename', json, forget((b) => [b.path]), fwd('POST', () => '/v1/rename', only('path', 'name')));
+  files.post('/move', json, forget((b) => (Array.isArray(b.paths) ? [...b.paths, b.to] : [])), fwd('POST', () => '/v1/move', only('paths', 'to', 'onConflict')));
+  files.post('/trash', json, forget((b) => (Array.isArray(b.paths) ? b.paths : [])), fwd('POST', () => '/v1/trash', only('paths')));
   files.get('/trash', async (_req, res) => res.json(await agent.getJson('/v1/trash')));
   // 접속 시 배너용 (D20): 오래된 항목·큰 용량이면 notice 에 표시
   files.get('/trash/summary', async (_req, res) => {
@@ -215,6 +260,59 @@ export function apiRouter({
   });
 
   api.use('/files', files);
+
+  // ── 파이 임시 보관함 (owner) ──
+  if (buffer) {
+    const buf = express.Router();
+    buf.use(requireRole(ROLES.OWNER));
+    buf.get('/', async (_req, res) => {
+      res.json({ items: await buffer.list(), ...(await buffer.usage()) });
+    });
+    buf.post('/uploads', uploadLimiter.middleware('UPLOAD_RATE_LIMITED'), json, async (req, res) => {
+      const { path: p, size, mtimeMs } = req.body ?? {};
+      const info = await buffer.create(p, size, mtimeMs);
+      res.status(201).json({ id: info.id, size: info.size, received: info.received, chunkSize: buffer.chunkSize });
+    });
+    buf.get('/uploads/:id', async (req, res) => {
+      const info = await buffer.uploads.status(uploadId(req));
+      res.json({ id: info.id, size: info.size, received: info.received });
+    });
+    buf.put('/uploads/:id', async (req, res) => {
+      const id = uploadId(req);
+      const offset = Number(req.query.offset);
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new HttpError(400, 'BAD_OFFSET');
+      const length = Number(req.headers['content-length']);
+      if (!Number.isSafeInteger(length)) throw new HttpError(411, 'LENGTH_REQUIRED');
+      if (length > MAX_CHUNK_REQUEST_BYTES) throw new HttpError(413, 'CHUNK_TOO_LARGE');
+      const sha = typeof req.headers['x-chunk-sha256'] === 'string' ? req.headers['x-chunk-sha256'].toLowerCase() : null;
+      try {
+        const info = await buffer.uploads.writeChunk(id, offset, req, { length, sha256: sha });
+        res.json({ id: info.id, size: info.size, received: info.received });
+      } catch (err) {
+        if (Number.isSafeInteger(err?.received)) err.extra = { received: err.received };
+        throw err;
+      }
+    });
+    buf.post('/uploads/:id/complete', json, async (req, res) => {
+      const item = await buffer.complete(uploadId(req));
+      res.json({ path: item.path, buffered: true, id: item.id });
+      if (monitor.online) buffer.sync(agent).catch(() => {}); // 그 사이 켜졌으면 바로 옮긴다
+    });
+    buf.delete('/uploads/:id', async (req, res) => {
+      await buffer.uploads.abort(uploadId(req));
+      res.json({ ok: true });
+    });
+    buf.post('/:id/retry', async (req, res) => {
+      await buffer.retry(req.params.id);
+      res.json({ ok: true });
+      if (monitor.online) buffer.sync(agent).catch(() => {});
+    });
+    buf.delete('/:id', async (req, res) => {
+      await buffer.remove(req.params.id);
+      res.json({ ok: true });
+    });
+    api.use('/buffer', buf);
+  }
 
   // ── 데모 폴더 (guest 이상, 읽기 전용) ──
   const demo = express.Router();

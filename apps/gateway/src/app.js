@@ -75,7 +75,7 @@ export function createApp(deps) {
   );
 
   // ── API ──
-  app.use('/api', noStore, csrfGuard(publicOrigin), apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin: deps.devLogin, now: deps.now, thumbs: deps.thumbs ?? null, ...(deps.trashNotice ? { trashNotice: deps.trashNotice } : {}) }));
+  app.use('/api', noStore, csrfGuard(publicOrigin), apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin: deps.devLogin, now: deps.now, thumbs: deps.thumbs ?? null, meta: deps.meta ?? null, buffer: deps.buffer ?? null, ...(deps.trashNotice ? { trashNotice: deps.trashNotice } : {}) }));
 
   // ── 웹 화면 (SPA) ──
   if (deps.webDist) app.use(webRouter({ webDist: deps.webDist, log }));

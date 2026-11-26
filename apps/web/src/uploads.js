@@ -13,10 +13,11 @@ const MAX_RETRIES = 6;
 const RESUME_KEY = 'wd.uploads';
 
 /** @typedef {'queued' | 'uploading' | 'done' | 'error' | 'cancelled'} UploadState */
+/** @typedef {'desktop' | 'buffer'} UploadTarget  buffer = 데스크탑이 꺼져 있어 파이에 임시 보관 (D3) */
 /**
  * @typedef {{
  *   key: string, name: string, dest: string, size: number, sent: number,
- *   state: UploadState, error?: string, finalPath?: string, startedAt?: number, rate?: number,
+ *   state: UploadState, error?: string, finalPath?: string, startedAt?: number, rate?: number, target: UploadTarget,
  * }} UploadItem
  */
 
@@ -32,7 +33,7 @@ function saveResume(map) {
     localStorage.setItem(RESUME_KEY, JSON.stringify(map));
   } catch {}
 }
-const resumeKey = (dest, file) => `${dest}|${file.size}|${file.lastModified}`;
+const resumeKey = (dest, file, target) => `${target === 'buffer' ? 'buffer:' : ''}${dest}|${file.size}|${file.lastModified}`;
 
 async function sha256Hex(blob) {
   const buf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
@@ -78,8 +79,9 @@ class UploadManager {
 
   /**
    * @param {Array<{ file: File, dest: string }>} files  dest = 최종 가상 경로 (폴더 업로드면 하위 경로 포함)
+   * @param {UploadTarget} [target]
    */
-  add(files) {
+  add(files, target = 'desktop') {
     for (const { file, dest } of files) {
       this.items.push({
         key: `u${++this.seq}`,
@@ -88,6 +90,7 @@ class UploadManager {
         size: file.size,
         sent: 0,
         state: 'queued',
+        target,
         file,
         ctrl: new AbortController(),
       });
@@ -138,7 +141,7 @@ class UploadManager {
           it.state = 'done';
           it.sent = it.size;
           it.finalPath = finalPath;
-          for (const fn of this.completeListeners) fn(finalPath);
+          for (const fn of this.completeListeners) fn(finalPath, it.target);
         })
         .catch((err) => {
           if (it.ctrl.signal.aborted) {
@@ -156,10 +159,11 @@ class UploadManager {
   }
 
   async #run(it) {
-    const { file, dest, ctrl } = it;
+    const { file, dest, ctrl, target } = it;
     const signal = ctrl.signal;
     const resume = loadResume();
-    const rkey = resumeKey(dest, file);
+    const rkey = resumeKey(dest, file, target);
+    const base = api.uploads.base(target);
 
     // 1) 이어올리기 가능한지 확인, 아니면 새로 만들기
     let id = resume[rkey]?.id;
@@ -167,14 +171,14 @@ class UploadManager {
     let received = 0;
     if (id) {
       try {
-        const s = await api.uploads.status(id);
+        const s = await api.uploads.status(id, target);
         received = s.received;
       } catch {
         id = undefined;
       }
     }
     if (!id) {
-      const c = await api.uploads.create(dest, file.size, file.lastModified || undefined);
+      const c = await api.uploads.create(dest, file.size, file.lastModified || undefined, target);
       id = c.id;
       chunkSize = c.chunkSize;
       received = c.received;
@@ -182,7 +186,7 @@ class UploadManager {
       r[rkey] = { id, chunkSize, at: Date.now() };
       saveResume(r);
     }
-    const onAbort = () => api.uploads.abort(id).catch(() => {});
+    const onAbort = () => api.uploads.abort(id, target).catch(() => {});
     signal.addEventListener('abort', onAbort, { once: true });
 
     // 2) 청크 전송
@@ -194,7 +198,7 @@ class UploadManager {
       try {
         const hash = await sha256Hex(blob);
         const t0 = performance.now();
-        const res = await fetch(`/api/files/uploads/${encodeURIComponent(id)}?offset=${received}`, {
+        const res = await fetch(`${base}/${encodeURIComponent(id)}?offset=${received}`, {
           method: 'PUT',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Sha256': hash },
@@ -239,7 +243,7 @@ class UploadManager {
 
     // 3) 완료
     signal.removeEventListener('abort', onAbort);
-    const done = await api.uploads.complete(id);
+    const done = await api.uploads.complete(id, target);
     const r = loadResume();
     delete r[rkey];
     saveResume(r);

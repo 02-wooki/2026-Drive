@@ -18,6 +18,7 @@ import { sortEntries, kindLabel, formatSize, formatDate, canPreview, kindOf } fr
 import { EntryIcon, Glyph } from './icons.jsx';
 import { Thumb, thumbSrc, RenameInput } from './parts.jsx';
 import { ColumnView } from './ColumnView.jsx';
+import { PendingBadge, entryTitle } from './parts.jsx';
 import { QuickLook } from './QuickLook.jsx';
 import { TrashView } from './TrashView.jsx';
 import { UploadPanel } from './UploadPanel.jsx';
@@ -73,7 +74,8 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const locParam = loc.search.get('loc');
   const source = !isOwner ? 'demo' : locParam === 'demo' ? 'demo' : locParam === 'trash' ? 'trash' : 'files';
   const path = source === 'trash' ? '/' : loc.search.get('path') || '/';
-  const writable = isOwner && source === 'files';
+  /** 올리기: 데스크탑이 꺼져 있어도 파이 보관함으로 가능 (D3) */
+  const canUpload = isOwner && source === 'files';
 
   const [listing, setListing] = useState({ key: null, entries: [], error: null, loading: true });
   const [selected, setSelected] = useState(() => new Set());
@@ -91,6 +93,8 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const [confirm, setConfirm] = useState(null);
   const [dropTarget, setDropTarget] = useState(null); // 폴더 경로 또는 '@here'
   const [dragging, setDragging] = useState(null); // 내부 드래그 중인 경로들
+  /** 파이 임시 보관함에서 데스크탑으로 옮겨지길 기다리는 파일들 */
+  const [pending, setPending] = useState([]);
 
   const contentRef = useRef(null);
   const fileInput = useRef(null);
@@ -126,7 +130,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
     setListing((l) => ({ ...l, key: locKey, loading: true, error: null }));
     try {
       const r = await api.list(source, path);
-      setListing({ key: locKey, entries: r.entries, error: null, loading: false });
+      setListing({ key: locKey, entries: r.entries, error: null, loading: false, cached: Boolean(r.cached), cachedAt: r.cachedAt ?? null });
       if (pendingSelect.current) {
         const want = pendingSelect.current;
         pendingSelect.current = null;
@@ -142,6 +146,32 @@ export function Browser({ user, loc, navigate, onLogout }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** 데스크탑이 꺼져 있어 파이에 저장된 목록을 보는 중 (읽기 전용, §4.2) */
+  const offlineView = source === 'files' && listing.key === locKey && Boolean(listing.cached);
+  const writable = canUpload && !offlineView;
+
+  // ── 파이 보관함 대기 목록 ──
+  const refreshPending = useCallback(async () => {
+    if (!isOwner) return;
+    try {
+      const r = await api.buffer.list();
+      setPending((old) => {
+        if (r.items.length < old.length && source === 'files') load(); // 데스크탑으로 옮겨진 게 있으면 목록 새로
+        return r.items;
+      });
+    } catch {}
+  }, [isOwner, source, load]);
+
+  useEffect(() => {
+    refreshPending();
+  }, [refreshPending]);
+
+  useEffect(() => {
+    if (!pending.length) return;
+    const t = setInterval(refreshPending, 15_000);
+    return () => clearInterval(t);
+  }, [pending.length, refreshPending]);
 
   const selectOnly = useCallback((p) => {
     setSelected(p ? new Set([p]) : new Set());
@@ -200,25 +230,49 @@ export function Browser({ user, loc, navigate, onLogout }) {
 
   // 꺼져 있다가 켜지면 자동으로 다시 불러오기
   useEffect(() => {
-    if (desktop === 'online' && source === 'files' && listing.error?.code === 'AGENT_OFFLINE') load();
-  }, [desktop, source, listing.error, load]);
+    if (desktop === 'online' && source === 'files' && (listing.error?.code === 'AGENT_OFFLINE' || listing.cached)) load();
+    if (desktop === 'online') refreshPending();
+  }, [desktop, source, listing.error, listing.cached, load, refreshPending]);
 
   // 업로드가 현재 폴더에 끝나면 목록 새로고침 (여러 개가 연달아 끝나도 한 번만)
   useEffect(() => {
     let t;
-    return uploads.onComplete((finalPath) => {
+    return uploads.onComplete((finalPath, target) => {
+      if (target === 'buffer') return void refreshPending();
       if (source !== 'files') return;
       if (!finalPath.startsWith(path === '/' ? '/' : `${path}/`)) return;
       clearTimeout(t);
       t = setTimeout(load, 400);
     });
-  }, [source, path, load]);
+  }, [source, path, load, refreshPending]);
 
-  // ── 보이는 항목 ──
+  // ── 보이는 항목 (+ 파이 보관함에서 기다리는 항목은 흐리게 "대기 중") ──
+  const ghosts = useMemo(() => {
+    if (source !== 'files' || !pending.length) return [];
+    const prefix = path === '/' ? '/' : `${path}/`;
+    const real = new Set(listing.entries.map((e) => e.name));
+    const out = [];
+    const dirs = new Map();
+    for (const it of pending) {
+      if (!it.path.startsWith(prefix)) continue;
+      const rest = it.path.slice(prefix.length).split('/');
+      if (rest.length === 1) {
+        out.push({ name: rest[0], path: null, type: 'file', size: it.size, mtimeMs: it.mtimeMs ?? it.createdAt, link: false, hidden: false, addressable: false, pending: it });
+      } else if (!real.has(rest[0])) {
+        // 아직 데스크탑에 없는 폴더 안으로 올린 것 → 그 폴더를 대기 중으로
+        const d = dirs.get(rest[0]) ?? { name: rest[0], path: null, type: 'dir', size: null, mtimeMs: it.createdAt, link: false, hidden: false, addressable: false, pending: { count: 0, error: null } };
+        d.pending.count++;
+        d.pending.error ??= it.error;
+        dirs.set(rest[0], d);
+      }
+    }
+    return [...out, ...dirs.values()];
+  }, [source, pending, path, listing.entries]);
+
   const visible = useMemo(() => {
     const list = showHidden ? listing.entries : listing.entries.filter((e) => !e.hidden);
-    return sortEntries(list, sort);
-  }, [listing.entries, showHidden, sort]);
+    return sortEntries([...list, ...ghosts], sort);
+  }, [listing.entries, ghosts, showHidden, sort]);
 
   const shown = useCallback((entries) => sortEntries(showHidden ? entries : entries.filter((e) => !e.hidden), sort), [showHidden, sort]);
 
@@ -229,7 +283,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
     const segs = path.slice(1).split('/');
     return segs.map((_, i) => (i === 0 ? '/' : '/' + segs.slice(0, i).join('/')));
   }, [path]);
-  const peekEntry = selected.size === 1 ? listing.entries.find((e) => e.path === lead) : null;
+  const peekEntry = selected.size === 1 ? listing.entries.find((e) => (e.path != null && e.path === lead)) : null;
   const peekFolder = columnMode && listing.key === locKey && peekEntry?.type === 'dir' && peekEntry.addressable ? peekEntry.path : null;
 
   const ensureFolder = useCallback(
@@ -257,7 +311,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
     return () => clearTimeout(t);
   }, [peekFolder, ensureFolder]);
 
-  const leadIndex = visible.findIndex((e) => e.path === lead);
+  const leadIndex = visible.findIndex((e) => (e.path != null && e.path === lead));
   const leadEntry = leadIndex >= 0 ? visible[leadIndex] : null;
   const selEntries = visible.filter((e) => selected.has(e.path));
 
@@ -280,7 +334,8 @@ export function Browser({ user, loc, navigate, onLogout }) {
       const url = single ? contentUrl(source, list[0].path, 'attachment') : zipUrl(source, list.map((e) => e.path));
       if (url.length > 6000) return notify({ kind: 'error', text: '한 번에 고른 항목이 너무 많아요. 폴더째로 내려받아 보세요.' });
       try {
-        await api.stat(source, list[0].path);
+        const st = await api.stat(source, list[0].path);
+        if (st.cached) return notify({ kind: 'error', text: messageFor('OFFLINE_READ_ONLY') });
       } catch (e) {
         return notify({ kind: 'error', text: messageFor(e) });
       }
@@ -289,16 +344,47 @@ export function Browser({ user, loc, navigate, onLogout }) {
     [source, notify],
   );
 
+  /** 훑어보기 열기. 꺼져 있을 때는 원본을 못 받으므로 안내만 */
+  const showQuickLook = useCallback(() => {
+    if (offlineView) return notify({ kind: 'error', text: messageFor('OFFLINE_READ_ONLY') });
+    setQuickLook(true);
+  }, [offlineView, notify]);
+
   const open = useCallback(
     (entry) => {
       if (!entry || !entry.addressable) return;
       if (entry.type === 'dir') return go(source, entry.path);
       if (entry.type !== 'file') return;
       selectOnly(entry.path);
-      if (canPreview(entry)) setQuickLook(true);
+      if (canPreview(entry)) showQuickLook();
       else download([entry]);
     },
-    [go, source, selectOnly, download],
+    [go, source, selectOnly, download, showQuickLook],
+  );
+
+  /** 올리기: 데스크탑이 꺼져 있으면 파이에 임시 보관할지 묻는다 (D3) */
+  const addUploads = useCallback(
+    async (list) => {
+      if (!list.length) return;
+      if (desktop !== 'offline' && !offlineView) return uploads.add(list);
+      let info;
+      try {
+        info = await api.buffer.list();
+      } catch (e) {
+        return notify({ kind: 'error', text: messageFor(e) });
+      }
+      const total = list.reduce((s, x) => s + x.file.size, 0);
+      if (total > info.free) {
+        return notify({ kind: 'error', text: `데스크탑이 꺼져 있고, 파이 임시 보관함의 남은 공간(${formatSize(info.free)})보다 커요. 데스크탑을 켠 뒤 올려 주세요.` });
+      }
+      setConfirm({
+        title: '데스크탑이 꺼져 있어요.',
+        message: `파이에 임시로 보관했다가 데스크탑이 켜지면 자동으로 옮길까요? (${list.length}개 · ${formatSize(total)}, 보관함 남은 공간 ${formatSize(info.free)})`,
+        confirmLabel: '파이에 보관',
+        run: () => uploads.add(list, 'buffer'),
+      });
+    },
+    [desktop, offlineView, notify],
   );
 
   const failMsg = (results, verb) => {
@@ -457,7 +543,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
     if (k === ' ') {
       e.preventDefault();
       if (quickLook) setQuickLook(false);
-      else if (leadEntry?.type === 'file' && leadEntry.addressable) setQuickLook(true);
+      else if (leadEntry?.type === 'file' && leadEntry.addressable) showQuickLook();
       return;
     }
     if (k === 'Escape') {
@@ -550,12 +636,13 @@ export function Browser({ user, loc, navigate, onLogout }) {
 
   /** 폴더(항목·경로 막대)를 놓을 곳으로 */
   const dropProps = (folderPath) =>
-    writable
+    canUpload
       ? {
           onDragOver: (e) => {
             const internal = e.dataTransfer.types.includes(DRAG_TYPE);
             const files = e.dataTransfer.types.includes('Files');
             if (!internal && !files) return;
+            if (internal && !writable) return; // 꺼져 있을 때는 옮기기 불가
             if (internal && dragging?.some((p) => folderPath === p || folderPath.startsWith(`${p}/`))) return; // 자기 안으로 X
             e.preventDefault();
             e.stopPropagation();
@@ -574,14 +661,14 @@ export function Browser({ user, loc, navigate, onLogout }) {
               setDragging(null);
               moveTo(JSON.parse(raw), folderPath);
             } else if (e.dataTransfer.types.includes('Files')) {
-              uploads.add(await collectDropped(e.dataTransfer, folderPath));
+              addUploads(await collectDropped(e.dataTransfer, folderPath));
             }
           },
         }
       : {};
 
   // 내용 영역 바탕 = 현재 폴더에 업로드 (내부 이동은 같은 폴더라 무시)
-  const contentDrop = writable
+  const contentDrop = canUpload
     ? {
         onDragOver: (e) => {
           if (!e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(DRAG_TYPE)) return;
@@ -596,7 +683,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
           if (!e.dataTransfer.types.includes('Files')) return;
           e.preventDefault();
           setDropTarget(null);
-          uploads.add(await collectDropped(e.dataTransfer, path));
+          addUploads(await collectDropped(e.dataTransfer, path));
         },
       }
     : {};
@@ -607,10 +694,19 @@ export function Browser({ user, loc, navigate, onLogout }) {
     if (entry && entry.addressable && !selected.has(entry.path)) selectOnly(entry.path);
     const many = entry && selected.has(entry.path) && selected.size > 1;
     const items = [];
+    if (entry?.pending) {
+      const it = entry.pending;
+      if (it.id) {
+        if (it.error) items.push({ label: '다시 옮기기', run: () => api.buffer.retry(it.id).then(refreshPending, (er) => notify({ kind: 'error', text: messageFor(er) })) });
+        items.push({ label: '보관 취소 (파이에서 지우기)', danger: true, run: () => api.buffer.remove(it.id).then(refreshPending, (er) => notify({ kind: 'error', text: messageFor(er) })) });
+      }
+      if (items.length) setMenu({ x: e.clientX, y: e.clientY, items });
+      return;
+    }
     if (entry && entry.addressable) {
       items.push({ label: '열기', shortcut: `${MOD}↓`, run: () => open(entry), disabled: many });
       if (entry.type === 'file') {
-        items.push({ label: '훑어보기', shortcut: 'Space', run: () => (selectOnly(entry.path), setQuickLook(true)), disabled: many || !canPreview(entry) });
+        items.push({ label: '훑어보기', shortcut: 'Space', run: () => (selectOnly(entry.path), showQuickLook()), disabled: many || !canPreview(entry) });
       }
       if (entry.type === 'file' || entry.type === 'dir') {
         const targets = many ? selEntries : [entry];
@@ -624,8 +720,8 @@ export function Browser({ user, loc, navigate, onLogout }) {
         items.push({ label: many ? `${targets.length}개 항목을 휴지통으로` : '휴지통으로 이동', shortcut: `${MOD}⌫`, danger: true, run: () => trashPaths(targets) });
       }
     } else {
-      if (writable) {
-        items.push({ label: '새 폴더', shortcut: `${MOD}⇧N`, run: newFolder });
+      if (canUpload) {
+        items.push({ label: '새 폴더', shortcut: `${MOD}⇧N`, run: newFolder, disabled: !writable });
         items.push({ label: '파일 올리기…', run: () => pickUpload('file') });
         items.push({ label: '폴더 올리기…', run: () => pickUpload('folder') });
         items.push('sep');
@@ -720,9 +816,9 @@ export function Browser({ user, loc, navigate, onLogout }) {
           <h1 className="toolbar-title">{title}</h1>
           {source !== 'trash' && (
             <div className="toolbar-actions">
-              {writable && (
+              {canUpload && (
                 <>
-                  <button type="button" className="icon-btn" onClick={newFolder} title={`새 폴더 (${MOD}⇧N)`} aria-label="새 폴더">
+                  <button type="button" className="icon-btn" disabled={!writable} onClick={newFolder} title={`새 폴더 (${MOD}⇧N)`} aria-label="새 폴더">
                     <Glyph name="newfolder" />
                   </button>
                   <button
@@ -745,7 +841,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
                   >
                     <Glyph name="upload" />
                   </button>
-                  <button type="button" className="icon-btn" disabled={!selEntries.length} onClick={trashSelected} title={`휴지통으로 이동 (${MOD}⌫)`} aria-label="휴지통으로 이동">
+                  <button type="button" className="icon-btn" disabled={!writable || !selEntries.length} onClick={trashSelected} title={`휴지통으로 이동 (${MOD}⌫)`} aria-label="휴지통으로 이동">
                     <Glyph name="trash" />
                   </button>
                   <span className="toolbar-sep" />
@@ -762,7 +858,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
                   <Glyph name="columns" />
                 </button>
               </div>
-              <button type="button" className="icon-btn" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), setQuickLook(true))} title="훑어보기 (Space)" aria-label="훑어보기">
+              <button type="button" className="icon-btn" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), showQuickLook())} title="훑어보기 (Space)" aria-label="훑어보기">
                 <Glyph name="eye" />
               </button>
               <button
@@ -780,6 +876,14 @@ export function Browser({ user, loc, navigate, onLogout }) {
         </header>
 
         <div className="banner-slot">
+          {offlineView && (
+            <div className="banner is-offline" role="status">
+              <Glyph name="desktop" />
+              <span className="banner-text">
+                데스크탑이 꺼져 있어 {formatDate(listing.cachedAt)}에 저장된 목록을 보여줘요. 열기·내려받기·정리는 켜진 뒤에 할 수 있고, 지금 올리면 파이에 보관했다가 옮겨요.
+              </span>
+            </div>
+          )}
           {trashNotice && (
             <div className="banner" role="status">
               <Glyph name="trash" />
@@ -871,7 +975,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
               <IconView entries={visible} {...itemProps} />
             )}
             {!columnMode && !listing.error && !listing.loading && !stale && visible.length === 0 && (
-              <p className="empty-folder">{writable ? '빈 폴더 · 파일을 끌어다 놓으면 올라가요' : '빈 폴더'}</p>
+              <p className="empty-folder">{canUpload ? '빈 폴더 · 파일을 끌어다 놓으면 올라가요' : '빈 폴더'}</p>
             )}
           </div>
         )}
@@ -921,7 +1025,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
         />
       )}
 
-      {writable && (
+      {canUpload && (
         <>
           <input
             ref={fileInput}
@@ -929,7 +1033,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
             multiple
             hidden
             onChange={(e) => {
-              uploads.add(collectPicked(e.target.files, path));
+              addUploads(collectPicked(e.target.files, path));
               e.target.value = '';
             }}
           />
@@ -939,7 +1043,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
             hidden
             webkitdirectory=""
             onChange={(e) => {
-              uploads.add(collectPicked(e.target.files, path));
+              addUploads(collectPicked(e.target.files, path));
               e.target.value = '';
             }}
           />
@@ -1020,12 +1124,12 @@ function ListView({ entries, sort, onSort, selected, lead, renaming, dropTarget,
           const on = selected.has(e.path);
           return (
             <div
-              key={e.name}
+              key={e.pending ? `~${e.name}` : e.name}
               role="row"
               data-path={e.path ?? ''}
               aria-selected={on}
-              className={`row ${on ? 'is-selected' : ''} ${e.path === lead ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${dropTarget === e.path ? 'is-drop' : ''}`}
-              title={e.addressable ? undefined : '이름 때문에 웹에서 열 수 없는 항목이에요'}
+              className={`row ${on ? 'is-selected' : ''} ${(e.path != null && e.path === lead) ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${e.pending ? 'is-pending' : ''} ${(e.path != null && dropTarget === e.path) ? 'is-drop' : ''}`}
+              title={entryTitle(e)}
               onMouseDown={(ev) => ev.button === 0 && onSelect(e, ev)}
               onDoubleClick={() => onOpen(e)}
               onContextMenu={(ev) => onMenu(ev, e)}
@@ -1034,11 +1138,12 @@ function ListView({ entries, sort, onSort, selected, lead, renaming, dropTarget,
             >
               <span className="col col-name" role="gridcell">
                 <EntryIcon entry={e} size={16} />
-                {renaming === e.path ? (
+                {(e.path != null && renaming === e.path) ? (
                   <RenameInput entry={e} onCommit={onRename} onCancel={onCancelRename} />
                 ) : (
                   <span className="name-text">{e.name}</span>
                 )}
+                {e.pending && <PendingBadge entry={e} />}
               </span>
               <span className="col col-mtime" role="gridcell">{formatDate(e.mtimeMs)}</span>
               <span className="col col-size" role="gridcell">{e.type === 'file' ? formatSize(e.size) : '--'}</span>
@@ -1060,11 +1165,11 @@ function IconView({ entries, source, selected, lead, renaming, dropTarget, onSel
         const thumb = thumbSrc(e, source);
         return (
           <div
-            key={e.name}
+            key={e.pending ? `~${e.name}` : e.name}
             role="gridcell"
             data-path={e.path ?? ''}
             aria-selected={on}
-            className={`icon-cell ${on ? 'is-selected' : ''} ${e.path === lead ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${dropTarget === e.path ? 'is-drop' : ''}`}
+            className={`icon-cell ${on ? 'is-selected' : ''} ${(e.path != null && e.path === lead) ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${e.pending ? 'is-pending' : ''} ${(e.path != null && dropTarget === e.path) ? 'is-drop' : ''}`}
             onMouseDown={(ev) => ev.button === 0 && onSelect(e, ev)}
             onDoubleClick={() => onOpen(e)}
             onContextMenu={(ev) => onMenu(ev, e)}
@@ -1072,11 +1177,12 @@ function IconView({ entries, source, selected, lead, renaming, dropTarget, onSel
             {...(e.type === 'dir' && e.addressable ? dropProps(e.path) : {})}
           >
             <div className="icon-art">{thumb ? <Thumb src={thumb} entry={e} video={kind === 'video'} /> : <EntryIcon entry={e} size={64} />}</div>
-            {renaming === e.path ? (
+            {(e.path != null && renaming === e.path) ? (
               <RenameInput entry={e} onCommit={onRename} onCancel={onCancelRename} className="is-icon" />
             ) : (
               <span className="icon-label">{e.name}</span>
             )}
+            {e.pending && <PendingBadge entry={e} />}
           </div>
         );
       })}

@@ -218,6 +218,14 @@ export class AgentMonitor {
     this.online = false;
     this.changedAt = Date.now();
     this.timer = null;
+    /** @type {Set<(online: boolean) => void>} */
+    this.listeners = new Set();
+  }
+
+  /** 켜짐/꺼짐이 바뀔 때마다 (버퍼 동기화, 목록 캐시 갱신) */
+  onChange(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
   set(online) {
@@ -225,6 +233,11 @@ export class AgentMonitor {
     this.online = online;
     this.changedAt = Date.now();
     this.log(`desktop ${online ? 'online' : 'offline'}`);
+    for (const fn of this.listeners) {
+      try {
+        fn(online);
+      } catch {}
+    }
   }
 
   /** @param {AgentClient} client */

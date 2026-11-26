@@ -722,6 +722,33 @@ a {
   color: var(--text-3);
 }
 
+/* 파이 보관함에서 기다리는 항목 (D3) */
+.row.is-pending,
+.icon-cell.is-pending,
+.column-row.is-pending {
+  opacity: 0.6;
+}
+.pending-badge {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-2);
+  background: var(--hover);
+  border: 1px solid var(--line-soft);
+}
+.pending-badge.is-failed {
+  color: #d93025;
+  border-color: color-mix(in srgb, #d93025 40%, transparent);
+}
+.icon-cell .pending-badge {
+  display: block;
+  margin: 2px auto 0;
+  width: max-content;
+}
+
 /* 아이콘 보기 */
 .icon-grid {
   display: grid;

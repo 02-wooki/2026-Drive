@@ -64,3 +64,18 @@ export function RenameInput({ entry, onCommit, onCancel, className }) {
     />
   );
 }
+
+/** 항목 툴팁: 파이 보관함 대기·열 수 없는 이름 */
+export function entryTitle(e) {
+  if (e.pending) {
+    if (e.pending.error) return '데스크탑으로 옮기지 못했어요. 우클릭해서 다시 옮기거나 지울 수 있어요.';
+    return e.type === 'dir' ? `파이에 보관 중인 파일 ${e.pending.count}개 — 데스크탑이 켜지면 옮겨져요` : '파이에 보관 중 — 데스크탑이 켜지면 옮겨져요';
+  }
+  return e.addressable ? undefined : '이름 때문에 웹에서 열 수 없는 항목이에요';
+}
+
+/** "대기 중" / "옮기지 못함" 배지 */
+export function PendingBadge({ entry }) {
+  const failed = Boolean(entry.pending?.error);
+  return <span className={`pending-badge ${failed ? 'is-failed' : ''}`}>{failed ? '옮기지 못함' : '대기 중'}</span>;
+}

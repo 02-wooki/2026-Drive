@@ -9,7 +9,7 @@
 import { useEffect, useRef } from 'react';
 import { kindLabel, formatSize, formatDate, kindOf, canPreview } from './fileTypes.js';
 import { EntryIcon, Glyph } from './icons.jsx';
-import { Thumb, thumbSrc, RenameInput } from './parts.jsx';
+import { Thumb, thumbSrc, RenameInput, PendingBadge, entryTitle } from './parts.jsx';
 import { messageFor } from '../messages.js';
 
 /**
@@ -78,12 +78,12 @@ export function ColumnView({
               const onPath = !col.active && col.highlight === e.path;
               return (
                 <div
-                  key={e.name}
+                  key={e.pending ? `~${e.name}` : e.name}
                   role="option"
                   aria-selected={on || onPath}
                   data-path={e.path ?? ''}
-                  className={`column-row ${on ? 'is-selected' : ''} ${onPath ? 'is-path' : ''} ${col.active && e.path === lead ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${dropTarget === e.path ? 'is-drop' : ''}`}
-                  title={e.addressable ? undefined : '이름 때문에 웹에서 열 수 없는 항목이에요'}
+                  className={`column-row ${on ? 'is-selected' : ''} ${onPath ? 'is-path' : ''} ${col.active && (e.path != null && e.path === lead) ? 'is-lead' : ''} ${e.addressable ? '' : 'is-disabled'} ${e.hidden ? 'is-hidden' : ''} ${e.pending ? 'is-pending' : ''} ${(e.path != null && dropTarget === e.path) ? 'is-drop' : ''}`}
+                  title={entryTitle(e)}
                   onMouseDown={(ev) => ev.button === 0 && onPick(col.folder, e, ev)}
                   onDoubleClick={() => onOpen(e)}
                   onContextMenu={(ev) => onMenu(ev, e, col.folder)}
@@ -91,11 +91,12 @@ export function ColumnView({
                   {...(e.type === 'dir' && e.addressable ? dropProps(e.path) : {})}
                 >
                   <EntryIcon entry={e} size={16} />
-                  {col.active && renaming === e.path ? (
+                  {col.active && (e.path != null && renaming === e.path) ? (
                     <RenameInput entry={e} onCommit={onRename} onCancel={onCancelRename} />
                   ) : (
                     <span className="name-text">{e.name}</span>
                   )}
+                  {e.pending && <PendingBadge entry={e} />}
                   {e.type === 'dir' && <Glyph name="chevron" />}
                 </div>
               );
