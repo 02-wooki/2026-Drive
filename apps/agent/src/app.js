@@ -149,7 +149,8 @@ export function createApp({
   });
   app.use(ipAllowlist(allowedIps));
 
-  app.get('/health', (_req, res) => res.json({ ok: true }));
+  // time: gateway 가 시계 차이를 감지하는 데 쓴다 (서명은 ±60초까지만 허용)
+  app.get('/health', (_req, res) => res.json({ ok: true, time: (now ?? Date.now)() }));
 
   const v1 = express.Router();
   v1.use(requireSignature({ secrets: hmacSecrets, now, onReject: (reason) => log(`signature rejected: ${reason}`) }));

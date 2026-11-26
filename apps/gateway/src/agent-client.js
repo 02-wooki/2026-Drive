@@ -142,12 +142,25 @@ export class AgentClient {
     return this.#readJson(await this.request('PUT', pathWithQuery, { stream: req, headers }));
   }
 
-  /** agent /health (서명 없음). 온라인이면 true. */
+  /**
+   * agent /health (서명 없음). 온라인이면 true.
+   * 응답의 time 으로 시계 차이(agent - gateway)를 lastSkewMs 에 남긴다 — 서명은 ±60초만 허용하므로
+   * 데스크탑 시계가 어긋나면 "켜져 있는데 AGENT_AUTH_FAILED" 가 된다.
+   */
   async health() {
     try {
+      const sent = Date.now();
       const res = await this.request('GET', '/health', { signed: false });
-      res.resume();
-      return res.statusCode === 200;
+      const chunks = [];
+      for await (const c of res) chunks.push(c);
+      if (res.statusCode !== 200) return false;
+      try {
+        const t = JSON.parse(Buffer.concat(chunks).toString('utf8')).time;
+        this.lastSkewMs = Number.isFinite(t) ? Math.round(t - (sent + Date.now()) / 2) : null;
+      } catch {
+        this.lastSkewMs = null;
+      }
+      return true;
     } catch {
       return false;
     }
@@ -242,7 +255,10 @@ export class AgentMonitor {
 
   /** @param {AgentClient} client */
   start(client) {
-    const tick = async () => this.set(await client.health());
+    const tick = async () => {
+      this.set(await client.health());
+      this.checkSkew(client.lastSkewMs);
+    };
     tick();
     this.timer = setInterval(tick, this.intervalMs);
     this.timer.unref?.();
@@ -250,6 +266,16 @@ export class AgentMonitor {
 
   stop() {
     clearInterval(this.timer);
+  }
+
+  /** 시계 차이가 30초를 넘으면 경고 (10분에 한 번). 서명 허용 범위는 ±60초. */
+  checkSkew(skewMs, now = Date.now()) {
+    if (skewMs == null || Math.abs(skewMs) <= 30_000) return false;
+    if (this.lastSkewWarn && now - this.lastSkewWarn < 10 * 60_000) return false;
+    this.lastSkewWarn = now;
+    const s = Math.round(skewMs / 1000);
+    this.log(`warning: desktop clock is ${Math.abs(s)}s ${s > 0 ? 'ahead of' : 'behind'} the Pi — signed requests fail beyond 60s; sync the desktop time (w32tm /resync)`);
+    return true;
   }
 
   status() {

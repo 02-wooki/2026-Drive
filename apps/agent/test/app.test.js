@@ -43,9 +43,13 @@ function signedGet(pathWithQuery, { headers = {}, secret = SECRET } = {}) {
 }
 
 test('health needs no signature', async () => {
+  const before = Date.now();
   const r = await fetch(`${base}/health`);
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { ok: true });
+  const body = await r.json();
+  assert.deepEqual(Object.keys(body).sort(), ['ok', 'time']);
+  assert.equal(body.ok, true);
+  assert.ok(body.time >= before && body.time <= Date.now(), 'agent clock for skew detection');
   assert.equal(r.headers.get('x-powered-by'), null);
 });
 
@@ -221,4 +225,13 @@ test('zip: multiple items, bad selections', async () => {
     assert.deepEqual(await bad.json(), { error: code }, p);
   }
   assert.equal((await fetch(`${base}/v1/zip${q('/사진')}`)).status, 401);
+});
+
+test('config: empty values in the env file count as unset', async () => {
+  const { loadConfig } = await import('../src/config.js');
+  const c = loadConfig({ DRIVE_ROOT: root, AGENT_HMAC_SECRET: SECRET, AGENT_HOST: '', AGENT_PORT: '', AGENT_ALLOWED_IPS: '', FFMPEG_PATH: '' });
+  assert.equal(c.host, '0.0.0.0');
+  assert.equal(c.port, 7401);
+  assert.equal(c.allowedIps, null);
+  assert.throws(() => loadConfig({ DRIVE_ROOT: root, AGENT_HMAC_SECRET: '' }), /AGENT_HMAC_SECRET/);
 });

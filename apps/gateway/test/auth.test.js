@@ -2,6 +2,8 @@
 // (암호 검증 자체는 @simplewebauthn/server 의 책임 — 여기서는 우리 쪽 상태 관리·권한 로직을 검증).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
 import { toKeyList } from '@wooki-drive/shared/node';
 import { createApp } from '../src/app.js';
@@ -423,6 +425,16 @@ test('config validation', () => {
 
   // 개발 로그인은 localhost + http 에서만
   assert.throws(() => loadConfig({ ...base, DEV_LOGIN: 'true' }), /DEV_LOGIN/);
+
+  // env 파일의 `KEY=` (빈 값) 은 설정 안 한 것 — 현재 폴더(코드 폴더)를 데모·web 폴더로 쓰는 사고 방지
+  const empty = loadConfig({ ...base, WEB_DIST: '', DEMO_ROOT: '', THUMB_CACHE_MAX_MB: '', BUFFER_MAX_GB: '', OWNER_IDLE_MINUTES: '', OAUTH_GITHUB_CLIENT_ID: '', OWNER_ACCOUNTS: '' });
+  assert.equal(empty.demoRoot, path.join(path.resolve(base.DATA_DIR), 'demo'));
+  assert.equal(empty.webDist, path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist'));
+  assert.equal(empty.thumbCacheMaxBytes, 512 * 1024 * 1024);
+  assert.equal(empty.bufferMaxBytes, 20 * 1024 ** 3);
+  assert.equal(empty.session.owner.idleMs, 10 * 60_000);
+  assert.deepEqual(empty.oauth, {});
+  assert.throws(() => loadConfig({ ...base, AGENT_HMAC_SECRET: '' }), /AGENT_HMAC_SECRET/);
   assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://192.168.0.5:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }), /DEV_LOGIN/);
   assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', DEV_LOGIN: 'true' }), /DEV_LOGIN/); // Secure 쿠키
   assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:7400', COOKIE_SECURE: 'false', DEV_LOGIN: 'true' }).devLogin, true);

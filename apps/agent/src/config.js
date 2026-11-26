@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toKeyList } from '@wooki-drive/shared/node';
+import { toKeyList, withoutEmpty } from '@wooki-drive/shared/node';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,12 +34,13 @@ function required(env, name) {
  *   hmacSecrets: Buffer[], allowedIps: string[] | null, envFile: string | null
  * }}
  */
-export function loadConfig(env = process.env) {
+export function loadConfig(rawEnv = process.env) {
   let envFile = null;
-  if (env === process.env) {
+  if (rawEnv === process.env) {
     envFile = findEnvFile();
     if (envFile) process.loadEnvFile(envFile); // 이미 설정된 값은 덮어쓰지 않는다
   }
+  const env = withoutEmpty(rawEnv); // `KEY=` 는 설정 안 한 것으로
 
   const driveRoot = required(env, 'DRIVE_ROOT');
   if (!path.isAbsolute(driveRoot)) throw new Error('DRIVE_ROOT 는 절대경로여야 합니다');

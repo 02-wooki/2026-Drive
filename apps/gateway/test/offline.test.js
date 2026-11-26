@@ -247,3 +247,30 @@ test('buffer: input checks and owner only', async () => {
   assert.equal((await api('GET', '/api/buffer', undefined, { cookie: guestCookie })).status, 403);
   assert.equal((await api('POST', '/api/buffer/uploads', { path: '/g.txt', size: 1 }, { cookie: guestCookie })).status, 403);
 });
+
+test('clock skew: health reports the desktop clock offset and the monitor warns once', async () => {
+  const skewed = createAgentApp({ driveRoot: drive, hmacSecrets: toKeyList(SECRET), now: () => Date.now() - 150_000 });
+  const s = await listen(skewed);
+  try {
+    const c = new AgentClient({ baseUrl: `http://127.0.0.1:${s.address().port}`, secrets: toKeyList(SECRET) });
+    assert.equal(await c.health(), true);
+    assert.ok(Math.abs(c.lastSkewMs + 150_000) < 2000, `skew ${c.lastSkewMs}`);
+    // 시계가 어긋나면 서명 요청은 거절된다 — 이 경고가 그 원인을 알려준다
+    await assert.rejects(c.getJson('/v1/list?path=%2F'), { code: 'AGENT_AUTH_FAILED' });
+
+    const logs = [];
+    const m = new AgentMonitor({ log: (x) => logs.push(x) });
+    assert.equal(m.checkSkew(c.lastSkewMs, 1_000_000), true);
+    assert.equal(m.checkSkew(c.lastSkewMs, 1_000_000 + 60_000), false, 'throttled');
+    assert.equal(m.checkSkew(5_000, 1_000_000 + 11 * 60_000), false, 'small skew is fine');
+    assert.match(logs[0], /150s behind/);
+    assert.equal(logs.length, 1);
+
+    // 정상 agent 는 차이가 거의 없다
+    assert.equal(await agent.health(), true);
+    assert.ok(Math.abs(agent.lastSkewMs) < 2000);
+  } finally {
+    s.closeAllConnections();
+    s.close();
+  }
+});

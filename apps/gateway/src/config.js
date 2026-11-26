@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toKeyList } from '@wooki-drive/shared/node';
+import { toKeyList, withoutEmpty } from '@wooki-drive/shared/node';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,12 +45,13 @@ function positive(value, fallback, name) {
 /**
  * @param {NodeJS.ProcessEnv} [env]
  */
-export function loadConfig(env = process.env) {
+export function loadConfig(rawEnv = process.env) {
   let envFile = null;
-  if (env === process.env) {
+  if (rawEnv === process.env) {
     envFile = findEnvFile();
     if (envFile) process.loadEnvFile(envFile);
   }
+  const env = withoutEmpty(rawEnv); // `KEY=` 는 설정 안 한 것으로
 
   const publicOrigin = new URL(required(env, 'PUBLIC_ORIGIN')).origin; // 예: https://drive.wooki.cloud
   const agentUrl = new URL(required(env, 'AGENT_URL')); // 예: http://192.168.0.20:7401
