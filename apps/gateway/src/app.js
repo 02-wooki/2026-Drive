@@ -75,7 +75,7 @@ export function createApp(deps) {
   );
 
   // ── API ──
-  app.use('/api', noStore, csrfGuard(publicOrigin), apiRouter({ agent, monitor, store, demoRoot, cookieSecure }));
+  app.use('/api', noStore, csrfGuard(publicOrigin), apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin: deps.devLogin, now: deps.now }));
 
   // ── 웹 화면 (SPA) ──
   if (deps.webDist) app.use(webRouter({ webDist: deps.webDist, log }));
@@ -91,7 +91,7 @@ export function createApp(deps) {
     for (const h of ['Content-Disposition', 'Content-Security-Policy', 'Content-Type', 'ETag', 'Last-Modified', 'Accept-Ranges']) {
       res.removeHeader(h);
     }
-    res.status(httpErr.status).json({ error: httpErr.code });
+    res.status(httpErr.status).json({ error: httpErr.code, ...(err?.extra ?? {}) });
   });
 
   return app;

@@ -83,6 +83,12 @@ export function Glyph({ name, size = 16 }) {
       return <svg {...common}><path d="m4 4 8 8M12 4l-8 8" /></svg>;
     case 'open':
       return <svg {...common}><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" /></svg>;
+    case 'trash':
+      return <svg {...common}><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9a1 1 0 0 0 1 1h4.6a1 1 0 0 0 1-1L12 4M6.5 6.5v5M9.5 6.5v5" /></svg>;
+    case 'upload':
+      return <svg {...common}><path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13h10" /></svg>;
+    case 'newfolder':
+      return <svg {...common}><path d="M1.5 4.5a1 1 0 0 1 1-1h3.2l1.3 1.5h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" /><path d="M8 7v4M6 9h4" /></svg>;
     case 'chevron':
       return <svg {...common} width={10} height={10}><path d="m6 3 5 5-5 5" /></svg>;
     default:

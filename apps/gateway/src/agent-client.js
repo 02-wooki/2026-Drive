@@ -9,6 +9,7 @@ import { signRequest } from '@wooki-drive/shared/node';
 import { HttpError } from './http.js';
 
 const CONNECT_TIMEOUT_MS = 3000;
+const IDLE_TIMEOUT_MS = 60_000;
 
 /** 브라우저 → agent 로 넘겨줄 요청 헤더 (Range·캐시 재검증) */
 const FORWARD_REQUEST_HEADERS = ['range', 'if-range', 'if-none-match', 'if-modified-since'];
@@ -29,13 +30,22 @@ export class AgentClient {
 
   /**
    * 서명된 요청을 보내고 응답(IncomingMessage)을 돌려준다. 본문은 호출자가 소비해야 한다.
+   *
+   * 시간 제한: 연결 3초(데스크탑 꺼짐 빠른 판정) + 무응답 60초(큰 폴더 목록, Wi-Fi 로 32MB 청크 전송 등은 허용).
+   *
    * @param {string} method
    * @param {string} pathWithQuery  예: '/v1/list?path=%2F'
-   * @param {{ headers?: Record<string, string>, signal?: AbortSignal, signed?: boolean }} [opts]
+   * @param {{
+   *   headers?: Record<string, string>, signal?: AbortSignal, signed?: boolean,
+   *   body?: string | Buffer,                       // 작은 본문: SHA-256 을 서명에 포함
+   *   stream?: import('node:stream').Readable,      // 큰 본문(업로드 청크): UNSIGNED-PAYLOAD, 그대로 파이프
+   * }} [opts]
    * @returns {Promise<http.IncomingMessage>}
    */
-  request(method, pathWithQuery, { headers = {}, signal, signed = true } = {}) {
-    const sig = signed ? signRequest({ secret: this.secrets, audience: 'agent', method, pathWithQuery }) : {};
+  request(method, pathWithQuery, { headers = {}, signal, signed = true, body, stream } = {}) {
+    const sig = signed
+      ? signRequest({ secret: this.secrets, audience: 'agent', method, pathWithQuery, ...(body !== undefined ? { body } : {}) })
+      : {};
     return new Promise((resolve, reject) => {
       const req = http.request(
         {
@@ -53,41 +63,83 @@ export class AgentClient {
           resolve(res);
         },
       );
-      // 연결·응답 헤더까지만 시간 제한. 본문 스트리밍엔 제한 없음.
       const connectTimer = setTimeout(() => {
         const err = new Error('agent connect timeout');
         err.code = 'AGENT_CONNECT_TIMEOUT';
         req.destroy(err);
       }, CONNECT_TIMEOUT_MS);
+      req.on('socket', (socket) => {
+        if (!socket.connecting) clearTimeout(connectTimer); // keep-alive 로 재사용된 소켓
+        else socket.once('connect', () => clearTimeout(connectTimer));
+      });
+      req.setTimeout(IDLE_TIMEOUT_MS, () => {
+        const err = new Error('agent idle timeout');
+        err.code = 'AGENT_IDLE_TIMEOUT';
+        req.destroy(err);
+      });
       req.on('error', (err) => {
         clearTimeout(connectTimer);
         if (OFFLINE_CODES.has(err.code)) {
           this.onReachability(false);
           reject(new HttpError(503, 'AGENT_OFFLINE'));
+        } else if (err.code === 'AGENT_IDLE_TIMEOUT') {
+          reject(new HttpError(504, 'AGENT_TIMEOUT'));
         } else if (err.name === 'AbortError') {
           reject(err);
         } else {
           reject(new HttpError(502, 'AGENT_ERROR'));
         }
       });
-      req.end();
+      if (stream) {
+        stream.on('error', (e) => req.destroy(e));
+        stream.pipe(req);
+      } else {
+        req.end(body);
+      }
     });
   }
 
-  /** JSON 응답 API. agent 의 오류 코드는 그대로 전달하고, 인증 실패(설정 오류)는 502 로 숨긴다. */
-  async getJson(pathWithQuery) {
-    const res = await this.request('GET', pathWithQuery);
+  /** 응답 JSON 읽기. agent 의 오류 코드(+ received 같은 보조 필드)는 그대로 전달하고, 인증 실패(설정 오류)는 502 로 숨긴다. */
+  async #readJson(res) {
     const chunks = [];
     for await (const c of res) chunks.push(c);
-    let body;
+    let data;
     try {
-      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } catch {
       throw new HttpError(502, 'AGENT_BAD_RESPONSE');
     }
     if (res.statusCode === 401) throw new HttpError(502, 'AGENT_AUTH_FAILED');
-    if (res.statusCode >= 400) throw new HttpError(res.statusCode, typeof body?.error === 'string' ? body.error : 'AGENT_ERROR');
-    return body;
+    if (res.statusCode >= 400) {
+      const err = new HttpError(res.statusCode, typeof data?.error === 'string' ? data.error : 'AGENT_ERROR');
+      if (Number.isSafeInteger(data?.received)) err.extra = { received: data.received };
+      throw err;
+    }
+    return { status: res.statusCode, data };
+  }
+
+  async getJson(pathWithQuery) {
+    return (await this.#readJson(await this.request('GET', pathWithQuery))).data;
+  }
+
+  /** JSON 본문 요청 (본문 해시 서명). @returns {Promise<{ status: number, data: any }>} */
+  async sendJson(method, pathWithQuery, payload = {}) {
+    const body = JSON.stringify(payload);
+    const res = await this.request(method, pathWithQuery, {
+      body,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(body)) },
+    });
+    return this.#readJson(res);
+  }
+
+  /**
+   * 업로드 청크를 agent 로 그대로 흘려보낸다(파이에 저장하지 않음).
+   * @param {import('express').Request} req  본문 스트림
+   * @param {string} pathWithQuery
+   * @param {Record<string, string>} headers  Content-Length, X-Chunk-Sha256
+   */
+  async pipeUpload(req, pathWithQuery, headers) {
+    return this.#readJson(await this.request('PUT', pathWithQuery, { stream: req, headers }));
   }
 
   /** agent /health (서명 없음). 온라인이면 true. */

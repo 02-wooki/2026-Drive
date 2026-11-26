@@ -30,12 +30,37 @@ const MESSAGES = {
   PASSKEY_CANCELLED: '패스키 확인이 취소되었어요.',
   PASSKEY_UNSUPPORTED: '이 브라우저는 패스키를 지원하지 않아요.',
   CSRF_ORIGIN: '요청 출처를 확인할 수 없어요. 페이지를 새로고침해 주세요.',
+  ALREADY_EXISTS: '같은 이름의 항목이 이미 있어요.',
+  SAME_LOCATION: '이미 그 폴더에 있어요.',
+  MOVE_INTO_SELF: '폴더를 자기 자신 안으로 옮길 수 없어요.',
+  ROOT_IS_READONLY: '최상위 폴더는 바꿀 수 없어요.',
+  CROSS_DEVICE: '다른 드라이브로는 옮길 수 없어요.',
+  TOO_MANY_CONFLICTS: '같은 이름이 너무 많아요.',
+  STEP_UP_REQUIRED: '이 작업은 패스키로 한 번 더 확인해야 해요.',
+  INSUFFICIENT_STORAGE: '데스크탑 저장 공간이 부족해요.',
+  UPLOAD_NOT_FOUND: '업로드가 만료되었어요. 다시 올려 주세요.',
+  UPLOAD_INCOMPLETE: '업로드가 끝나지 않았어요.',
+  UPLOAD_BUSY: '이 파일을 다른 곳에서 올리고 있어요.',
+  UPLOAD_FAILED: '업로드에 실패했어요.',
+  UPLOAD_RATE_LIMITED: '업로드 요청이 너무 많아요. 잠시 후 다시 시도해 주세요.',
+  CHUNK_CORRUPT: '전송 중 데이터가 손상되었어요. 다시 시도해 주세요.',
+  CHUNK_TOO_LARGE: '업로드 조각이 너무 커요.',
+  BAD_SIZE: '파일 크기를 확인할 수 없어요.',
+  AGENT_TIMEOUT: '데스크탑 응답이 너무 늦어요.',
+  PATH_RESERVED: '시스템이 쓰는 이름이라 사용할 수 없어요.',
+  PATH_RESERVED_NAME: '윈도우에서 쓸 수 없는 이름이에요. (CON, NUL 등)',
+  PATH_INVALID_CHAR: '이름에 쓸 수 없는 문자가 있어요. (\\ / : * ? " < > |)',
+  PATH_TRAILING_DOT_OR_SPACE: '이름 끝에 점이나 공백을 쓸 수 없어요.',
+  PATH_NAME_TOO_LONG: '이름이 너무 길어요.',
+  PATH_EMPTY_SEGMENT: '이름을 입력해 주세요.',
+  PATH_DOT_SEGMENT: '"."이나 ".."은 이름으로 쓸 수 없어요.',
 };
 
 /** @param {{ code?: string } | string | null | undefined} err */
 export function messageFor(err) {
   const code = typeof err === 'string' ? err : err?.code;
   if (!code) return '알 수 없는 오류가 났어요.';
+  if (MESSAGES[code]) return MESSAGES[code];
   if (code.startsWith('PATH_')) return '사용할 수 없는 경로예요.';
-  return MESSAGES[code] ?? `오류가 났어요. (${code})`;
+  return `오류가 났어요. (${code})`;
 }

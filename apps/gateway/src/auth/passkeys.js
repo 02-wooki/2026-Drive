@@ -4,6 +4,8 @@
 //   POST /auth/passkey/register/verify    등록 완료
 //   POST /auth/passkey/login/options      인증 시작
 //   POST /auth/passkey/login/verify       인증 완료 → owner 세션 (새 세션 ID)
+//   POST /auth/passkey/reauth/options     (owner) 재인증 시작 — 영구 삭제·휴지통 비우기 직전
+//   POST /auth/passkey/reauth/verify      (owner) 재인증 완료 → 2분짜리 1회용 허가 (session.stepUp)
 //
 // 등록 허용 조건 (둘 중 하나):
 //   a) 등록된 패스키가 하나도 없고, 화이트리스트 OAuth 를 막 통과한 세션 (최초 1회 부트스트랩)
@@ -23,6 +25,8 @@ import { HttpError } from '../http.js';
 import { issueSession } from './session-cookie.js';
 
 const CHALLENGE_TTL_MS = 5 * 60_000;
+/** 재인증 허가 유효 시간. 한 번 쓰면 사라진다. */
+export const STEP_UP_TTL_MS = 2 * 60_000;
 const MAX_CREDENTIALS = 20;
 const OWNER_USER_ID = new TextEncoder().encode('wooki-drive-owner');
 
@@ -235,6 +239,53 @@ export function passkeyRouter({ publicOrigin, cookieSecure, sessionTtl, store, p
     issueSession(res, rotated.id, sessionTtl.owner, cookieSecure);
     log('owner signed in with passkey');
     res.json({ ok: true });
+  });
+
+  // ── 재인증 (영구 삭제 등 되돌릴 수 없는 작업 직전) ──
+  router.post('/reauth/options', async (req, res) => {
+    if (!isOwner(req.session)) throw new HttpError(403, 'OWNER_ONLY');
+    if (passkeys.count === 0) throw new HttpError(409, 'PASSKEY_NOT_REGISTERED');
+    const options = await webauthn.generateAuthenticationOptions({
+      rpID,
+      allowCredentials: passkeys.descriptors(),
+      userVerification: 'required',
+    });
+    saveChallenge(req, 'reauth', options.challenge);
+    res.json(options);
+  });
+
+  router.post('/reauth/verify', async (req, res) => {
+    if (!isOwner(req.session)) throw new HttpError(403, 'OWNER_ONLY');
+    const challenge = takeChallenge(req, 'reauth');
+    if (!challenge) throw new HttpError(400, 'PASSKEY_CHALLENGE_EXPIRED');
+    const cred = typeof req.body?.id === 'string' ? passkeys.find(req.body.id) : null;
+    if (!cred) throw new HttpError(400, 'PASSKEY_FAILED');
+
+    let result;
+    try {
+      result = await webauthn.verifyAuthenticationResponse({
+        response: req.body,
+        expectedChallenge: challenge,
+        expectedOrigin: publicOrigin,
+        expectedRPID: rpID,
+        credential: {
+          id: cred.id,
+          publicKey: new Uint8Array(Buffer.from(cred.publicKey, 'base64url')),
+          counter: cred.counter,
+          transports: cred.transports,
+        },
+        requireUserVerification: true,
+      });
+    } catch {
+      result = { verified: false };
+    }
+    if (!result.verified) throw new HttpError(400, 'PASSKEY_FAILED');
+
+    await passkeys.touch(cred.id, result.authenticationInfo.newCounter, now());
+    const expiresAt = now() + STEP_UP_TTL_MS;
+    store.update(req.sessionId, { stepUp: { expiresAt } });
+    log('owner re-authenticated (step-up)');
+    res.json({ ok: true, expiresAt });
   });
 
   return router;

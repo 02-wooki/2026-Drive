@@ -7,6 +7,15 @@ const log = (msg) => console.log(`[agent] ${new Date().toISOString()} ${msg}`);
 const config = loadConfig();
 const app = createApp({ ...config, log });
 
+// 오래 방치된 업로드 임시 파일 정리 (시작 시 + 1시간마다)
+const cleanup = () =>
+  app.locals.uploads
+    .cleanup()
+    .then((n) => n && log(`cleaned ${n} stale upload(s)`))
+    .catch((err) => log(`upload cleanup failed: ${err.message}`));
+cleanup();
+setInterval(cleanup, 3600_000).unref();
+
 const server = app.listen(config.port, config.host, () => {
   // 비밀값은 출력하지 않는다
   log(`listening on ${config.host}:${config.port}, root=${config.driveRoot}, env=${config.envFile ?? '(process env)'}`);

@@ -121,6 +121,37 @@ export function joinVirtual(parent, name) {
 }
 
 /**
+ * 루트 바로 아래의 시스템 폴더 (휴지통·업로드 임시 파일). 웹 API 로는 보이지도, 접근되지도 않는다.
+ * 윈도우는 대소문자를 구분하지 않으므로 비교도 대소문자 무시.
+ */
+export const SYSTEM_DIR_NAME = '.wooki';
+
+/** 가상 경로가 시스템 폴더(또는 그 안)를 가리키는가 */
+export function isReservedPath(vpath) {
+  const segs = parseVirtualPath(vpath);
+  return segs.length > 0 && segs[0].toLowerCase() === SYSTEM_DIR_NAME;
+}
+
+/** 시스템 폴더 경로면 PathError('RESERVED') */
+export function assertNotReserved(vpath) {
+  if (isReservedPath(vpath)) throw new PathError('RESERVED');
+  return vpath;
+}
+
+/**
+ * 이름 충돌 시 대체 이름 (ai.md §4.1-3: `이름 (1).ext`).
+ * 확장자는 마지막 점 기준. 점으로 시작하는 이름(.env)이나 폴더는 끝에 붙인다.
+ * @param {string} name
+ * @param {number} n  1, 2, 3 …
+ * @param {{ isDir?: boolean }} [opts]
+ */
+export function numberedName(name, n, { isDir = false } = {}) {
+  const dot = name.lastIndexOf('.');
+  if (isDir || dot <= 0) return `${name} (${n})`;
+  return `${name.slice(0, dot)} (${n})${name.slice(dot)}`;
+}
+
+/**
  * a 가 b 자신이거나 b 의 조상인가. 폴더를 자기 하위로 이동하는 것을 막을 때 쓴다.
  * 기본은 대소문자 무시(윈도우 NTFS 기준). 대소문자를 구분하는 ext4에서는 거짓 양성만 생기므로 안전한 쪽.
  */

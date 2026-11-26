@@ -9,7 +9,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, url, body) {
+export async function request(method, url, body) {
   let res;
   try {
     res = await fetch(url, {
@@ -27,7 +27,11 @@ async function request(method, url, body) {
   } catch {
     /* 본문 없음 */
   }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? `HTTP_${res.status}`);
+  if (!res.ok) {
+    const err = new ApiError(res.status, data?.error ?? `HTTP_${res.status}`);
+    if (Number.isSafeInteger(data?.received)) err.received = data.received;
+    throw err;
+  }
   return data;
 }
 
@@ -45,7 +49,26 @@ export const api = {
   /** @param {Source} source */
   list: (source, path) => request('GET', `/api/${source}/list?${q(path)}`),
 
+  // ── 쓰기 (오너, 데스크탑) ──
+  mkdir: (parent, name, onConflict = 'rename') => request('POST', '/api/files/mkdir', { parent, name, onConflict }),
+  rename: (path, name) => request('POST', '/api/files/rename', { path, name }),
+  move: (paths, to, onConflict = 'fail') => request('POST', '/api/files/move', { paths, to, onConflict }),
+  trash: (paths) => request('POST', '/api/files/trash', { paths }),
+  trashList: () => request('GET', '/api/files/trash'),
+  trashRestore: (ids) => request('POST', '/api/files/trash/restore', { ids }),
+  trashDelete: (ids) => request('POST', '/api/files/trash/delete', { ids }),
+  trashEmpty: () => request('POST', '/api/files/trash/empty', {}),
+
+  uploads: {
+    create: (path, size, mtimeMs) => request('POST', '/api/files/uploads', { path, size, mtimeMs }),
+    status: (id) => request('GET', `/api/files/uploads/${encodeURIComponent(id)}`),
+    complete: (id) => request('POST', `/api/files/uploads/${encodeURIComponent(id)}/complete`, {}),
+    abort: (id) => request('DELETE', `/api/files/uploads/${encodeURIComponent(id)}`),
+  },
+
   passkey: {
+    reauthOptions: () => request('POST', '/auth/passkey/reauth/options'),
+    reauthVerify: (response) => request('POST', '/auth/passkey/reauth/verify', response),
     status: () => request('GET', '/auth/passkey/status'),
     registerOptions: () => request('POST', '/auth/passkey/register/options'),
     registerVerify: (response) => request('POST', '/auth/passkey/register/verify', response),

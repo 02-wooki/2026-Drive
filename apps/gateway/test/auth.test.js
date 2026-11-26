@@ -93,7 +93,7 @@ const listen = (app) =>
 
 let server, base, ctx;
 before(async () => {
-  ctx = build();
+  ctx = build({ limits: { passkey: 1000 } }); // 한 서버에서 여러 흐름을 돌리므로 한도를 넉넉히 (한도 자체는 별도 테스트)
   server = await listen(ctx.app);
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -284,6 +284,35 @@ test('owner: registration closes after bootstrap; login requires passkey', async
   const guest = cookieValue(await login('github', 'code-guest'), SID);
   assert.equal((await req('/auth/passkey/login/options', { method: 'POST', cookies: { [SID]: guest } })).status, 403);
   assert.equal((await req('/auth/passkey/login/options', { method: 'POST' })).status, 403);
+});
+
+test('owner step-up re-auth grants a short, one-time permission', async () => {
+  assert.equal(ctx.passkeys.count, 1, 'depends on registration test');
+  const pending = cookieValue(await login('github', 'code-owner'), SID);
+  const o = await (await req('/auth/passkey/login/options', { method: 'POST', cookies: { [SID]: pending } })).json();
+  const owner = cookieValue(
+    await req('/auth/passkey/login/verify', { method: 'POST', cookies: { [SID]: pending }, body: { id: 'cred-1', challenge: o.challenge } }),
+    SID,
+  );
+
+  // 오너 대기 세션·게스트는 재인증 불가
+  assert.equal((await req('/auth/passkey/reauth/options', { method: 'POST', cookies: { [SID]: pending } })).status, 403);
+
+  const opts = await (await req('/auth/passkey/reauth/options', { method: 'POST', cookies: { [SID]: owner } })).json();
+  // 로그인용 챌린지로는 재인증 불가 (종류가 다름)
+  const lo = await req('/auth/passkey/login/verify', { method: 'POST', cookies: { [SID]: owner }, body: { id: 'cred-1', challenge: opts.challenge } });
+  assert.equal(lo.status, 403);
+
+  const ok = await req('/auth/passkey/reauth/verify', { method: 'POST', cookies: { [SID]: owner }, body: { id: 'cred-1', challenge: opts.challenge } });
+  assert.equal(ok.status, 200);
+  const { expiresAt } = await ok.json();
+  assert.ok(expiresAt > Date.now() && expiresAt <= Date.now() + 2 * 60_000);
+  assert.equal(ctx.store.get(owner).stepUp.expiresAt, expiresAt);
+  assert.equal(cookieValue(ok, SID), undefined, 're-auth must not rotate or reissue the session');
+
+  // 같은 챌린지 재사용 불가
+  const again = await req('/auth/passkey/reauth/verify', { method: 'POST', cookies: { [SID]: owner }, body: { id: 'cred-1', challenge: opts.challenge } });
+  assert.deepEqual(await again.json(), { error: 'PASSKEY_CHALLENGE_EXPIRED' });
 });
 
 test('rate limit on login start', async () => {

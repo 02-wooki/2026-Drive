@@ -72,6 +72,24 @@ export function requireRole(minRole) {
   };
 }
 
+/**
+ * 되돌릴 수 없는 작업(영구 삭제·휴지통 비우기) 전 패스키 재인증 (ai.md D16).
+ * /auth/passkey/reauth 로 받은 허가(2분)를 **한 번 쓰고 없앤다**.
+ * 개발 로그인 세션은 패스키가 없으므로 devLogin 모드에서만 통과시킨다.
+ * @param {{ store: import('./sessions.js').SessionStore, devLogin?: boolean, now?: () => number }} deps
+ */
+export function requireStepUp({ store, devLogin = false, now = Date.now }) {
+  return (req, _res, next) => {
+    const s = req.session;
+    if (devLogin && s?.user?.provider === 'dev') return next();
+    if (s?.stepUp && s.stepUp.expiresAt > now()) {
+      store.update(req.sessionId, { stepUp: null });
+      return next();
+    }
+    next(new HttpError(403, 'STEP_UP_REQUIRED'));
+  };
+}
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
