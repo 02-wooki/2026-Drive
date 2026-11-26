@@ -86,6 +86,15 @@ export function contentUrl(source, path, disposition = 'inline') {
   return `/api/${source}/content?${q(path)}&disposition=${disposition}`;
 }
 
+/**
+ * 데스크탑 썸네일 URL. 파일 버전(수정시각-크기)을 넣어 파일이 바뀌면 URL 도 바뀐다 → 브라우저·파이 모두 오래 캐시 가능.
+ * @param {{ path: string, mtimeMs: number | null, size: number | null }} entry
+ */
+export function thumbUrl(entry, width = 256) {
+  const v = `${Math.floor(entry.mtimeMs ?? 0)}-${entry.size ?? 0}`;
+  return `/api/files/thumb?${q(entry.path)}&w=${width}&v=${v}`;
+}
+
 /** 텍스트 미리보기: 앞부분만 Range 로 받는다. */
 export async function fetchTextPreview(source, path, maxBytes = 256 * 1024) {
   const res = await fetch(contentUrl(source, path), { headers: { Range: `bytes=0-${maxBytes - 1}` }, credentials: 'same-origin' });

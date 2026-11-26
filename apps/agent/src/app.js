@@ -5,6 +5,7 @@
 // GET  /v1/list?path=/a                폴더 목록 (루트의 시스템 폴더는 숨김)
 // GET  /v1/stat?path=/a/b.jpg          메타데이터
 // GET  /v1/file?path=&disposition=     파일 내용. Range / If-None-Match 지원
+// GET  /v1/thumb?path=&w=128|256|512   WebP 썸네일 + X-Thumb-Version
 // ── 쓰기 (JSON 본문, 본문 해시 서명 필수) ──
 // POST /v1/mkdir        { parent, name, onConflict? }        → { path }
 // POST /v1/rename       { path, name }                        → { path }
@@ -53,6 +54,7 @@ import {
 } from '@wooki-drive/shared/node';
 import { ipAllowlist, requireSignature } from './auth.js';
 import { HttpError, toHttpError } from './http-error.js';
+import { Thumbnailer } from './thumbs.js';
 
 const MAX_BATCH = 1000;
 const FREE_SPACE_MARGIN = 1024 ** 3; // 디스크를 꽉 채우지 않도록 1GB 여유
@@ -111,7 +113,15 @@ async function each(list, fn) {
  *   now?: () => number, log?: (msg: string) => void, uploadChunkSize?: number,
  * }} config
  */
-export function createApp({ driveRoot, hmacSecrets, allowedIps = null, now, log = () => {}, uploadChunkSize = UPLOAD_CHUNK_SIZE }) {
+export function createApp({
+  driveRoot,
+  hmacSecrets,
+  allowedIps = null,
+  now,
+  log = () => {},
+  uploadChunkSize = UPLOAD_CHUNK_SIZE,
+  thumbnailer = new Thumbnailer(),
+}) {
   const dirs = systemDirs(driveRoot);
   fs.mkdirSync(dirs.trash, { recursive: true });
   fs.mkdirSync(dirs.staging, { recursive: true });
@@ -165,6 +175,17 @@ export function createApp({ driveRoot, hmacSecrets, allowedIps = null, now, log 
         if (err && !res.headersSent) next(err);
       },
     );
+  });
+
+  // 썸네일: 캐시는 gateway 가 X-Thumb-Version(수정시각-크기) 키로 보관
+  v1.get('/thumb', async (req, res) => {
+    const width = Number(req.query.w ?? 256);
+    const info = await statPath(driveRoot, assertNotReserved(req.query.path));
+    if (info.type !== 'file') throw new HttpError(400, 'NOT_A_FILE');
+    const buf = await thumbnailer.make(info.realPath, info.name, width);
+    res.set('Content-Type', 'image/webp');
+    res.set('X-Thumb-Version', `${Math.floor(info.mtimeMs)}-${info.size}`);
+    res.send(buf);
   });
 
   // ── 쓰기 ──

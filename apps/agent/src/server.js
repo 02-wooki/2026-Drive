@@ -1,11 +1,14 @@
 // agent 진입점. 운영에서는 윈도우 서비스가 이 파일을 실행한다 (deploy/windows).
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
+import { Thumbnailer, detectFfmpeg } from './thumbs.js';
 
 const log = (msg) => console.log(`[agent] ${new Date().toISOString()} ${msg}`);
 
 const config = loadConfig();
-const app = createApp({ ...config, log });
+const ffmpeg = detectFfmpeg();
+log(ffmpeg ? `ffmpeg found: ${ffmpeg}` : 'ffmpeg not found — video thumbnails disabled (set FFMPEG_PATH)');
+const app = createApp({ ...config, log, thumbnailer: new Thumbnailer({ ffmpeg }) });
 
 // 오래 방치된 업로드 임시 파일 정리 (시작 시 + 1시간마다)
 const cleanup = () =>

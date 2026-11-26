@@ -8,6 +8,7 @@
 //   GET  /api/files/list?path=
 //   GET  /api/files/stat?path=
 //   GET  /api/files/content?path=&disposition=inline|attachment
+//   GET  /api/files/thumb?path=&w=&v=          썸네일 (파이에 캐시)
 //   POST /api/files/{mkdir,rename,move,trash}  GET|POST /api/files/trash[/restore]
 //   POST /api/files/trash/{delete,empty}       ← 패스키 재인증(1회용) 필요
 //   POST /api/files/uploads  GET|PUT|DELETE /api/files/uploads/:id  POST /api/files/uploads/:id/complete
@@ -35,7 +36,7 @@ const q = (vpath) => `path=${encodeURIComponent(normalizeVirtualPath(vpath))}`;
  *   demoRoot: string, cookieSecure: boolean,
  * }} deps
  */
-export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin = false, now = Date.now }) {
+export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLogin = false, now = Date.now, thumbs = null }) {
   const api = express.Router();
   const stepUp = requireStepUp({ store, devLogin, now });
   const uploadLimiter = new RateLimiter({ limit: 2000, windowMs: 10 * 60_000 }); // 폴더 업로드(파일 수백 개)는 허용
@@ -80,6 +81,53 @@ export function apiRouter({ agent, monitor, store, demoRoot, cookieSecure, devLo
     };
     res.set('Cache-Control', 'private, no-cache');
     await agent.pipeFile(req, res, `/v1/file?${q(req.query.path)}&disposition=${disposition}`, policy);
+  });
+
+  // 썸네일: ?path=&w=&v=<수정시각-크기>. 캐시 적중이면 데스크탑이 꺼져 있어도 응답한다.
+  files.get('/thumb', async (req, res) => {
+    const vpath = normalizeVirtualPath(req.query.path);
+    const width = Number(req.query.w ?? 256);
+    if (![128, 256, 512].includes(width)) throw new HttpError(400, 'BAD_THUMB_WIDTH');
+    const wanted = typeof req.query.v === 'string' ? req.query.v : null;
+
+    const sendThumb = (bodyOrPath, immutable) => {
+      res.set('Content-Type', 'image/webp');
+      res.set('Content-Security-Policy', "default-src 'none'");
+      res.set('Cross-Origin-Resource-Policy', 'same-origin');
+      // URL 에 버전이 들어 있고 그 버전과 일치할 때만 오래 캐시
+      res.set('Cache-Control', immutable ? 'private, max-age=31536000, immutable' : 'private, no-cache');
+      if (Buffer.isBuffer(bodyOrPath)) res.send(bodyOrPath);
+      else res.sendFile(bodyOrPath, { dotfiles: 'allow', cacheControl: false, lastModified: false, etag: false, headers: { 'Content-Type': 'image/webp' } });
+    };
+
+    if (thumbs && wanted) {
+      const hit = thumbs.get(vpath, wanted, width);
+      if (hit) return sendThumb(hit, true);
+    }
+
+    const upstream = await agent.request('GET', `/v1/thumb?${q(vpath)}&w=${width}`);
+    const chunks = [];
+    let size = 0;
+    for await (const c of upstream) {
+      size += c.length;
+      if (size > 4 * 1024 * 1024) {
+        upstream.destroy();
+        throw new HttpError(502, 'AGENT_BAD_RESPONSE');
+      }
+      chunks.push(c);
+    }
+    const body = Buffer.concat(chunks);
+    if (upstream.statusCode === 401) throw new HttpError(502, 'AGENT_AUTH_FAILED');
+    if (upstream.statusCode !== 200) {
+      let code = 'AGENT_ERROR';
+      try {
+        code = JSON.parse(body.toString('utf8')).error ?? code;
+      } catch {}
+      throw new HttpError(upstream.statusCode ?? 502, code);
+    }
+    const version = upstream.headers['x-thumb-version'];
+    if (thumbs && typeof version === 'string') await thumbs.put(vpath, version, width, body).catch(() => {});
+    sendThumb(body, wanted !== null && wanted === version);
   });
 
   // ── 쓰기 (owner). 검증은 agent 가 최종 책임지고, 여기서는 형식만 거른다. ──

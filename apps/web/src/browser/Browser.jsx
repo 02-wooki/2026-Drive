@@ -10,7 +10,7 @@
 // 마우스: ⌘클릭 추가/해제, ⇧클릭 범위, 끌어서 폴더·경로 막대로 이동, 바탕화면 파일을 끌어다 놓아 업로드, 우클릭 메뉴.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, contentUrl } from '../api.js';
+import { api, contentUrl, thumbUrl } from '../api.js';
 import { messageFor } from '../messages.js';
 import { uploads, collectDropped, collectPicked } from '../uploads.js';
 import { sortEntries, kindLabel, formatSize, formatDate, canPreview, kindOf } from './fileTypes.js';
@@ -804,6 +804,18 @@ function EmptyState({ error, onRetry }) {
   );
 }
 
+/** 썸네일. 못 받으면(지원 안 하는 형식, 데스크탑 꺼짐+캐시 없음) 아이콘으로. */
+function Thumb({ src, entry, video }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (failed) return <EntryIcon entry={entry} size={64} />;
+  return (
+    <span className={`thumb ${video ? 'is-video' : ''}`}>
+      <img src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} />
+    </span>
+  );
+}
+
 /** 이름 변경 입력칸. 파일은 확장자 앞까지만 선택 (Finder 와 같음). */
 function RenameInput({ entry, onCommit, onCancel, className }) {
   const ref = useRef(null);
@@ -906,7 +918,15 @@ function IconView({ entries, source, selected, lead, renaming, dropTarget, onSel
     <div className="icon-grid" role="grid" aria-multiselectable="true">
       {entries.map((e) => {
         const on = selected.has(e.path);
-        const thumb = e.addressable && kindOf(e) === 'image' && e.size != null && e.size <= THUMB_MAX_BYTES;
+        const kind = kindOf(e);
+        // 데스크탑: agent 가 만든 썸네일(이미지·동영상). 데모 폴더: 작은 샘플이라 원본 이미지를 그대로.
+        const thumb = !e.addressable
+          ? null
+          : source === 'files' && (kind === 'image' || kind === 'video')
+            ? thumbUrl(e)
+            : source === 'demo' && kind === 'image' && e.size != null && e.size <= THUMB_MAX_BYTES
+              ? contentUrl(source, e.path)
+              : null;
         return (
           <div
             key={e.name}
@@ -920,9 +940,7 @@ function IconView({ entries, source, selected, lead, renaming, dropTarget, onSel
             {...dragProps(e)}
             {...(e.type === 'dir' && e.addressable ? dropProps(e.path) : {})}
           >
-            <div className="icon-art">
-              {thumb ? <img src={contentUrl(source, e.path)} alt="" loading="lazy" decoding="async" draggable={false} /> : <EntryIcon entry={e} size={64} />}
-            </div>
+            <div className="icon-art">{thumb ? <Thumb src={thumb} entry={e} video={kind === 'video'} /> : <EntryIcon entry={e} size={64} />}</div>
             {renaming === e.path ? (
               <RenameInput entry={e} onCommit={onRename} onCancel={onCancelRename} className="is-icon" />
             ) : (

@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { SessionStore } from './sessions.js';
 import { AgentClient, AgentMonitor } from './agent-client.js';
 import { PasskeyStore } from './auth/passkeys.js';
+import { ThumbCache } from './thumb-cache.js';
 
 const log = (msg) => console.log(`[gateway] ${new Date().toISOString()} ${msg}`);
 
@@ -20,11 +21,14 @@ passkeys.load();
 if (Object.keys(config.oauth).length === 0) log('warning: no OAuth provider configured — nobody can sign in');
 if (config.ownerAccounts.size === 0) log('setup mode: OWNER_ACCOUNTS is empty — every login becomes a guest');
 
+const thumbs = new ThumbCache({ dir: config.thumbCacheDir, maxBytes: config.thumbCacheMaxBytes, log });
+await thumbs.init();
+
 const monitor = new AgentMonitor({ log });
 const agent = new AgentClient({ baseUrl: config.agentUrl, secrets: config.agentSecrets, onReachability: (ok) => monitor.set(ok) });
 monitor.start(agent);
 
-const app = createApp({ ...config, store, passkeys, agent, monitor, log });
+const app = createApp({ ...config, store, passkeys, agent, monitor, thumbs, log });
 
 const server = app.listen(config.port, config.host, () => {
   // 비밀값은 출력하지 않는다

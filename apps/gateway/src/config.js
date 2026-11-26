@@ -101,6 +101,8 @@ export function loadConfig(env = process.env) {
     dataDir,
     demoRoot: path.resolve(env.DEMO_ROOT ?? path.join(dataDir, 'demo')),
     sessionFile: path.join(dataDir, 'sessions', 'sessions.json'),
+    thumbCacheDir: path.join(dataDir, 'cache', 'thumbs'),
+    thumbCacheMaxBytes: Number(env.THUMB_CACHE_MAX_MB ?? 512) * 1024 * 1024,
     cookieSecure,
     session: {
       owner: { absoluteMs: 12 * HOUR, idleMs: 2 * HOUR },
