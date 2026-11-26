@@ -67,6 +67,8 @@ export function Glyph({ name, size = 16 }) {
       return <svg {...common}><path d="m6 3 5 5-5 5" /></svg>;
     case 'list':
       return <svg {...common}><path d="M5 4h9M5 8h9M5 12h9M2 4h.01M2 8h.01M2 12h.01" /></svg>;
+    case 'columns':
+      return <svg {...common}><rect x="1.5" y="2.5" width="13" height="11" rx="1" /><path d="M6 2.5v11M10.5 2.5v11" /></svg>;
     case 'grid':
       return <svg {...common}><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>;
     case 'download':

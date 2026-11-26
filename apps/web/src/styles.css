@@ -609,6 +609,119 @@ a {
   opacity: 0.6;
 }
 
+/* 컬럼 보기: 컬럼마다 세로 스크롤, 전체는 가로 스크롤 */
+.content.is-columns {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.columns {
+  display: flex;
+  height: 100%;
+  min-width: max-content;
+}
+.column {
+  flex: none;
+  width: 240px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 4px 0;
+  border-right: 1px solid var(--line-soft);
+}
+.column-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--row-h);
+  margin: 0 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  cursor: default;
+}
+.column-row svg {
+  flex: none;
+}
+.column-row .name-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+.column-row > svg:last-child:not(:first-child) {
+  color: var(--text-3);
+}
+/* 다음 컬럼으로 이어지는 항목(경로)은 회색, 지금 컬럼의 선택은 파란색 */
+.column-row.is-path,
+.column-row.is-selected {
+  background: var(--select-blur);
+}
+.is-focused .column-row.is-selected {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.is-focused .column-row.is-selected > svg:last-child:not(:first-child) {
+  color: var(--accent-text);
+}
+.column-row.is-disabled {
+  opacity: 0.45;
+}
+.column-row.is-hidden {
+  opacity: 0.6;
+}
+.column-note {
+  margin: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+.column-preview {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+  gap: 4px;
+  text-align: center;
+}
+.preview-art {
+  display: grid;
+  place-items: center;
+  width: 160px;
+  height: 160px;
+  margin-bottom: 8px;
+}
+.preview-art .thumb,
+.preview-art .thumb img {
+  max-width: 160px;
+  max-height: 160px;
+}
+.preview-name {
+  margin: 0;
+  font-weight: 600;
+  word-break: break-all;
+}
+.preview-kind,
+.preview-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.preview-info {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 8px;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.preview-info dt {
+  color: var(--text-2);
+}
+.preview-info dd {
+  margin: 0;
+}
+.preview-hint {
+  margin-top: 12px;
+  color: var(--text-3);
+}
+
 /* 아이콘 보기 */
 .icon-grid {
   display: grid;
@@ -989,6 +1102,8 @@ pre.ql-text {
 }
 
 .row.is-drop,
+.column-row.is-drop,
+.column.is-drop,
 .icon-cell.is-drop .icon-art,
 .crumbs button.is-drop,
 .sidebar-item.is-drop {
@@ -1333,6 +1448,9 @@ pre.ql-text {
   }
   .trash-note {
     display: none;
+  }
+  .column {
+    width: 200px;
   }
 }
 

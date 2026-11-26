@@ -4,25 +4,33 @@
 //
 // 단축키 (맥은 ⌘, 윈도우는 Ctrl):
 //   ↑ ↓ (아이콘 보기에선 ← → 도), ⇧+방향키 범위 선택     ⌘A 모두 선택
+//   컬럼 보기: → 폴더 안으로, ← 상위 컬럼으로
 //   ⌘↓ / 더블클릭 열기     ⌘↑ 상위 폴더     ⌘[ ⌘] 뒤로 / 앞으로
 //   Space Quick Look       Enter 이름 변경   ⌘⌫ / Delete 휴지통으로
 //   ⌘⇧N 새 폴더           ⌘⇧. 숨김 파일     글자 입력 이름으로 이동
 // 마우스: ⌘클릭 추가/해제, ⇧클릭 범위, 끌어서 폴더·경로 막대로 이동, 바탕화면 파일을 끌어다 놓아 업로드, 우클릭 메뉴.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, contentUrl, thumbUrl, zipUrl } from '../api.js';
+import { api, contentUrl, zipUrl } from '../api.js';
 import { messageFor } from '../messages.js';
 import { uploads, collectDropped, collectPicked } from '../uploads.js';
 import { sortEntries, kindLabel, formatSize, formatDate, canPreview, kindOf } from './fileTypes.js';
 import { EntryIcon, Glyph } from './icons.jsx';
+import { Thumb, thumbSrc, RenameInput } from './parts.jsx';
+import { ColumnView } from './ColumnView.jsx';
 import { QuickLook } from './QuickLook.jsx';
 import { TrashView } from './TrashView.jsx';
 import { UploadPanel } from './UploadPanel.jsx';
 import { ConfirmDialog, ContextMenu, Toast } from './Overlays.jsx';
 
 const ROOT_LABEL = { files: '데스크탑', demo: '데모 폴더', trash: '휴지통' };
-const THUMB_MAX_BYTES = 20_000_000;
 const DRAG_TYPE = 'application/x-wooki-paths';
+
+const VIEWS = [
+  ['icons', '아이콘'],
+  ['list', '목록'],
+  ['columns', '컬럼'],
+];
 
 const isMod = (e) => e.metaKey || e.ctrlKey;
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -90,6 +98,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const prevLocation = useRef({ source, path });
   const typeBuffer = useRef({ text: '', at: 0 });
   const pendingSelect = useRef(null); // 목록 새로고침 뒤 선택할 경로들
+  const navSelect = useRef(undefined); // 이동 직후 선택할 항목 (컬럼 보기에서 다른 컬럼을 누를 때). null = 선택 없음
+  const lastLoaded = useRef(null);
+  /** 컬럼 보기용 다른 폴더 목록 캐시: `${source}:${folder}` → { entries, error } */
+  const [folders, setFolders] = useState({});
+  const folderFetching = useRef(new Set());
 
   const locKey = `${source}:${path}`;
   const go = useCallback(
@@ -107,6 +120,9 @@ export function Browser({ user, loc, navigate, onLogout }) {
   // ── 목록 불러오기 ──
   const load = useCallback(async () => {
     if (source === 'trash') return;
+    // 같은 폴더를 다시 불러오는 것 = 쓰기 뒤 새로고침 → 다른 컬럼 목록도 낡았을 수 있다
+    if (lastLoaded.current === locKey) setFolders({});
+    lastLoaded.current = locKey;
     setListing((l) => ({ ...l, key: locKey, loading: true, error: null }));
     try {
       const r = await api.list(source, path);
@@ -139,7 +155,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
     prevLocation.current = { source, path };
     setQuickLook(false);
     setRenaming(null);
-    if (prev.source === source && prev.path !== path && prev.path.startsWith(path === '/' ? '/' : `${path}/`)) {
+    const want = navSelect.current;
+    navSelect.current = undefined;
+    if (want !== undefined) {
+      selectOnly(want);
+    } else if (prev.source === source && prev.path !== path && prev.path.startsWith(path === '/' ? '/' : `${path}/`)) {
       const rest = prev.path.slice(path === '/' ? 1 : path.length + 1);
       selectOnly(joinPath(path, rest.split('/')[0]));
     } else {
@@ -199,6 +219,43 @@ export function Browser({ user, loc, navigate, onLogout }) {
     const list = showHidden ? listing.entries : listing.entries.filter((e) => !e.hidden);
     return sortEntries(list, sort);
   }, [listing.entries, showHidden, sort]);
+
+  const shown = useCallback((entries) => sortEntries(showHidden ? entries : entries.filter((e) => !e.hidden), sort), [showHidden, sort]);
+
+  // ── 컬럼 보기: 상위 폴더들 + (폴더를 골랐으면) 그 안 목록 ──
+  const columnMode = view === 'columns' && source !== 'trash';
+  const ancestors = useMemo(() => {
+    if (path === '/') return [];
+    const segs = path.slice(1).split('/');
+    return segs.map((_, i) => (i === 0 ? '/' : '/' + segs.slice(0, i).join('/')));
+  }, [path]);
+  const peekEntry = selected.size === 1 ? listing.entries.find((e) => e.path === lead) : null;
+  const peekFolder = columnMode && listing.key === locKey && peekEntry?.type === 'dir' && peekEntry.addressable ? peekEntry.path : null;
+
+  const ensureFolder = useCallback(
+    (folder) => {
+      const key = `${source}:${folder}`;
+      if (folders[key] || folderFetching.current.has(key)) return;
+      folderFetching.current.add(key);
+      api
+        .list(source, folder)
+        .then((r) => setFolders((f) => ({ ...f, [key]: { entries: r.entries } })))
+        .catch((error) => setFolders((f) => ({ ...f, [key]: { entries: [], error } })))
+        .finally(() => folderFetching.current.delete(key));
+    },
+    [source, folders],
+  );
+
+  useEffect(() => {
+    if (!columnMode) return;
+    for (const a of ancestors) ensureFolder(a);
+  }, [columnMode, ancestors, ensureFolder]);
+
+  useEffect(() => {
+    if (!peekFolder) return;
+    const t = setTimeout(() => ensureFolder(peekFolder), 120); // 방향키로 훑을 때 요청 폭주 방지
+    return () => clearTimeout(t);
+  }, [peekFolder, ensureFolder]);
 
   const leadIndex = visible.findIndex((e) => e.path === lead);
   const leadEntry = leadIndex >= 0 ? visible[leadIndex] : null;
@@ -437,6 +494,22 @@ export function Browser({ user, loc, navigate, onLogout }) {
       return;
     }
 
+    if (columnMode && k === 'ArrowRight') {
+      e.preventDefault();
+      if (leadEntry?.type !== 'dir' || !leadEntry.addressable || selected.size !== 1) return;
+      const inside = folders[`${source}:${leadEntry.path}`];
+      const first = inside && !inside.error ? shown(inside.entries).find((x) => x.addressable) : null;
+      navSelect.current = first?.path ?? null;
+      go(source, leadEntry.path);
+      return;
+    }
+    if (columnMode && k === 'ArrowLeft') {
+      e.preventDefault();
+      const up = parentPath(path);
+      if (up) go(source, up);
+      return;
+    }
+
     const grid = view === 'icons';
     if (k === 'ArrowDown') return void (e.preventDefault(), moveLead(grid ? columnsInGrid() : 1, e.shiftKey));
     if (k === 'ArrowUp') return void (e.preventDefault(), moveLead(grid ? -columnsInGrid() : -1, e.shiftKey));
@@ -558,7 +631,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
         items.push('sep');
       }
       items.push({ label: showHidden ? '숨김 파일 가리기' : '숨김 파일 보기', shortcut: `${MOD}⇧.`, run: () => setShowHidden((v) => !v) });
-      items.push({ label: view === 'list' ? '아이콘으로 보기' : '목록으로 보기', run: () => setView(view === 'list' ? 'icons' : 'list') });
+      for (const [v, label] of VIEWS) if (v !== view) items.push({ label: `${label}으로 보기`, run: () => setView(v) });
     }
     if (items.length) setMenu({ x: e.clientX, y: e.clientY, items });
   }
@@ -685,6 +758,9 @@ export function Browser({ user, loc, navigate, onLogout }) {
                 <button type="button" className={view === 'list' ? 'is-on' : ''} onClick={() => setView('list')} title="목록으로 보기" aria-pressed={view === 'list'}>
                   <Glyph name="list" />
                 </button>
+                <button type="button" className={view === 'columns' ? 'is-on' : ''} onClick={() => setView('columns')} title="컬럼으로 보기" aria-pressed={view === 'columns'}>
+                  <Glyph name="columns" />
+                </button>
               </div>
               <button type="button" className="icon-btn" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), setQuickLook(true))} title="훑어보기 (Space)" aria-label="훑어보기">
                 <Glyph name="eye" />
@@ -739,7 +815,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
           </div>
         ) : (
           <div
-            className={`content ${stale || listing.loading ? 'is-loading' : ''} ${dropTarget === '@here' ? 'is-drop' : ''}`}
+            className={`content ${columnMode ? 'is-columns' : ''} ${stale || listing.loading ? 'is-loading' : ''} ${dropTarget === '@here' ? 'is-drop' : ''}`}
             ref={contentRef}
             tabIndex={0}
             onKeyDown={onKeyDown}
@@ -755,12 +831,46 @@ export function Browser({ user, loc, navigate, onLogout }) {
           >
             {listing.error && !stale ? (
               <EmptyState error={listing.error} onRetry={load} />
+            ) : columnMode ? (
+              <ColumnView
+                {...itemProps}
+                columns={[
+                  ...ancestors.map((folder, i) => {
+                    const c = folders[`${source}:${folder}`];
+                    return { folder, entries: c ? shown(c.entries) : null, error: c?.error, active: false, highlight: ancestors[i + 1] ?? path };
+                  }),
+                  { folder: path, entries: stale ? null : visible, active: true, highlight: null },
+                  ...(peekFolder ? [peekColumn(folders[`${source}:${peekFolder}`], peekFolder, shown)] : []),
+                ]}
+                preview={selected.size === 1 && leadEntry?.type === 'file' ? leadEntry : null}
+                path={path}
+                onPick={(folder, entry, ev) => {
+                  if (folder === path) {
+                    if (entry) clickSelect(entry, ev);
+                    else selectOnly(null);
+                    return;
+                  }
+                  if (entry && !entry.addressable) return;
+                  navSelect.current = entry?.path ?? null;
+                  go(source, folder);
+                }}
+                onMenu={(ev, entry, folder) => {
+                  if (folder !== path) {
+                    ev.preventDefault();
+                    if (entry && !entry.addressable) return;
+                    navSelect.current = entry?.path ?? null;
+                    go(source, folder);
+                    return;
+                  }
+                  openMenu(ev, entry);
+                }}
+              />
             ) : view === 'list' ? (
               <ListView entries={visible} sort={sort} onSort={toggleSort} {...itemProps} />
             ) : (
               <IconView entries={visible} {...itemProps} />
             )}
-            {!listing.error && !listing.loading && !stale && visible.length === 0 && (
+            {!columnMode && !listing.error && !listing.loading && !stale && visible.length === 0 && (
               <p className="empty-folder">{writable ? '빈 폴더 · 파일을 끌어다 놓으면 올라가요' : '빈 폴더'}</p>
             )}
           </div>
@@ -859,6 +969,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
   );
 }
 
+/** 컬럼 보기에서 고른 폴더의 안쪽 목록 (아직 이동하지 않은 미리 보기 컬럼) */
+function peekColumn(cached, folder, shown) {
+  return { folder, entries: cached ? shown(cached.entries) : null, error: cached?.error, active: false, highlight: null };
+}
+
 function EmptyState({ error, onRetry }) {
   const offline = error.code === 'AGENT_OFFLINE';
   return (
@@ -871,53 +986,6 @@ function EmptyState({ error, onRetry }) {
         </button>
       )}
     </div>
-  );
-}
-
-/** 썸네일. 못 받으면(지원 안 하는 형식, 데스크탑 꺼짐+캐시 없음) 아이콘으로. */
-function Thumb({ src, entry, video }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  if (failed) return <EntryIcon entry={entry} size={64} />;
-  return (
-    <span className={`thumb ${video ? 'is-video' : ''}`}>
-      <img src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} />
-    </span>
-  );
-}
-
-/** 이름 변경 입력칸. 파일은 확장자 앞까지만 선택 (Finder 와 같음). */
-function RenameInput({ entry, onCommit, onCancel, className }) {
-  const ref = useRef(null);
-  const done = useRef(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.focus();
-    const dot = entry.type === 'file' ? entry.name.lastIndexOf('.') : -1;
-    el.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
-  }, [entry]);
-  const finish = (fn) => {
-    if (done.current) return;
-    done.current = true;
-    fn();
-  };
-  return (
-    <input
-      ref={ref}
-      className={`rename-input ${className ?? ''}`}
-      defaultValue={entry.name}
-      aria-label="새 이름"
-      spellCheck={false}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') finish(() => onCommit(entry, e.currentTarget.value));
-        if (e.key === 'Escape') finish(onCancel);
-      }}
-      onBlur={(e) => finish(() => onCommit(entry, e.currentTarget.value))}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-    />
   );
 }
 
@@ -989,14 +1057,7 @@ function IconView({ entries, source, selected, lead, renaming, dropTarget, onSel
       {entries.map((e) => {
         const on = selected.has(e.path);
         const kind = kindOf(e);
-        // 데스크탑: agent 가 만든 썸네일(이미지·동영상). 데모 폴더: 작은 샘플이라 원본 이미지를 그대로.
-        const thumb = !e.addressable
-          ? null
-          : source === 'files' && (kind === 'image' || kind === 'video')
-            ? thumbUrl(e)
-            : source === 'demo' && kind === 'image' && e.size != null && e.size <= THUMB_MAX_BYTES
-              ? contentUrl(source, e.path)
-              : null;
+        const thumb = thumbSrc(e, source);
         return (
           <div
             key={e.name}
