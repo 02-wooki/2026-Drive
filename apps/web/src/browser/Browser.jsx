@@ -25,6 +25,7 @@ import { QuickLook } from './QuickLook.jsx';
 import { TrashView } from './TrashView.jsx';
 import { UploadPanel } from './UploadPanel.jsx';
 import { ConfirmDialog, ContextMenu, Toast } from './Overlays.jsx';
+import { installLongPress } from './longPress.js';
 import { ButtonGroup, IconButton, SegmentedControl } from '../design/index.js';
 
 const ROOT_LABEL = { files: '데스크탑', demo: '데모 폴더', trash: '휴지통' };
@@ -98,6 +99,8 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const [dragging, setDragging] = useState(null); // 내부 드래그 중인 경로들
   /** 파이 임시 보관함에서 데스크탑으로 옮겨지길 기다리는 파일들 */
   const [pending, setPending] = useState([]);
+
+  useEffect(() => installLongPress(document), []); // 터치 길게 누르기 → 우클릭 메뉴 (한 번만 등록)
 
   const contentRef = useRef(null);
   const paneRef = useRef(null);

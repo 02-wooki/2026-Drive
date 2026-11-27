@@ -39,17 +39,45 @@ body,
   margin: 0;
 }
 
+/*
+ * 배경 — 휴대폰에서 상태 표시줄·주소창 뒤까지 꽉 채운다.
+ *  viewport-fit=cover(index.html)로 화면 가장자리까지 그리고, 내용은 safe-area 만큼 안쪽에.
+ *  iOS 는 background-attachment: fixed 를 무시하므로 고정 레이어(::before)에 그린다.
+ *  100lvh = 주소창이 접힌 가장 큰 높이 → 주소창이 움직여도 빈틈이 없다.
+ */
+html {
+  background: var(--wallpaper-base);
+}
+
 body {
   font: var(--text-md) / var(--leading-normal) var(--font-sans);
   color: var(--text);
-  background: var(--wallpaper);
-  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100lvh;
+  min-height: 100%;
+  z-index: -1;
+  background: var(--wallpaper);
+  pointer-events: none;
 }
 
 button {
   font: inherit;
   color: inherit;
+}
+
+input,
+textarea,
+pre {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 a {
@@ -84,6 +112,8 @@ a {
   display: grid;
   place-items: center;
   padding: var(--space-6);
+  padding: max(var(--space-6), env(safe-area-inset-top)) max(var(--space-6), env(safe-area-inset-right))
+    max(var(--space-6), env(safe-area-inset-bottom)) max(var(--space-6), env(safe-area-inset-left));
 }
 
 .login-card {
@@ -260,7 +290,12 @@ a {
   grid-template-columns: var(--sidebar-w) 1fr;
   gap: var(--window-gap);
   height: 100%;
+  -webkit-touch-callout: none; /* 길게 누르면 iOS 기본 메뉴·글자 선택 대신 우리 메뉴 */
+  -webkit-user-select: none;
+  user-select: none;
   padding: var(--window-gap);
+  padding: max(var(--window-gap), env(safe-area-inset-top)) max(var(--window-gap), env(safe-area-inset-right))
+    max(var(--window-gap), env(safe-area-inset-bottom)) max(var(--window-gap), env(safe-area-inset-left));
 }
 
 .sidebar {
