@@ -1,0 +1,35 @@
+/* Molecules: 버튼 묶음(.btn-group), 세그먼트(.segmented). 둘 다 Glass 캡슐 위에 올라간다. */
+
+.btn-group,
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+}
+.btn-group .icon-btn:hover:not(:disabled):not(.is-disabled) {
+  background: var(--press);
+}
+
+.segmented button {
+  position: relative; /* 림 라이트(::before) 위에 */
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.segmented button:hover:not(.is-on) {
+  color: var(--text);
+  background: var(--hover);
+}
+.segmented button.is-on {
+  background: var(--fill-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}

@@ -25,6 +25,7 @@ import { QuickLook } from './QuickLook.jsx';
 import { TrashView } from './TrashView.jsx';
 import { UploadPanel } from './UploadPanel.jsx';
 import { ConfirmDialog, ContextMenu, Toast } from './Overlays.jsx';
+import { ButtonGroup, IconButton, SegmentedControl } from '../design/index.js';
 
 const ROOT_LABEL = { files: '데스크탑', demo: '데모 폴더', trash: '휴지통' };
 const DRAG_TYPE = 'application/x-wooki-paths';
@@ -99,6 +100,17 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const [pending, setPending] = useState([]);
 
   const contentRef = useRef(null);
+  const paneRef = useRef(null);
+  const headerRef = useRef(null);
+  // 툴바·배너는 목록 위에 떠 있다(유리 뒤로 목록이 지나감) → 그 높이만큼 목록을 띄운다
+  useEffect(() => {
+    const header = headerRef.current;
+    const pane = paneRef.current;
+    if (!header || !pane) return undefined;
+    const ro = new ResizeObserver(() => pane.style.setProperty('--header-h', `${header.offsetHeight}px`));
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, []);
   const fileInput = useRef(null);
   const folderInput = useRef(null);
   const prevLocation = useRef({ source, path });
@@ -800,7 +812,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
 
   return (
     <div className={`finder ${focused ? 'is-focused' : ''}`}>
-      <aside className="sidebar" aria-label="위치">
+      <aside className="sidebar glass" aria-label="위치">
         <div className="sidebar-brand">Wooki Drive</div>
         <div className="sidebar-heading">위치</div>
         <nav className="sidebar-list">
@@ -839,29 +851,27 @@ export function Browser({ user, loc, navigate, onLogout }) {
         </div>
       </aside>
 
-      <section className="pane">
+      <section className="pane" ref={paneRef}>
+        <div className="pane-header" ref={headerRef}>
         <header className="toolbar">
-          <div className="toolbar-nav">
-            <button type="button" className="icon-btn" disabled={!canGoBack} onClick={() => history.back()} title={`뒤로 (${MOD}[)`} aria-label="뒤로">
+          <ButtonGroup label="탐색">
+            <IconButton label="뒤로" hint={`${MOD}[`} disabled={!canGoBack} onClick={() => history.back()}>
               <Glyph name="back" />
-            </button>
-            <button type="button" className="icon-btn" disabled={!canGoForward} onClick={() => history.forward()} title={`앞으로 (${MOD}])`} aria-label="앞으로">
+            </IconButton>
+            <IconButton label="앞으로" hint={`${MOD}]`} disabled={!canGoForward} onClick={() => history.forward()}>
               <Glyph name="forward" />
-            </button>
-          </div>
+            </IconButton>
+          </ButtonGroup>
           <h1 className="toolbar-title">{title}</h1>
           {source !== 'trash' && (
             <div className="toolbar-actions">
               {canUpload && (
-                <>
-                  <button type="button" className="icon-btn" disabled={!writable} onClick={newFolder} title={`새 폴더 (${MOD}⇧N)`} aria-label="새 폴더">
+                <ButtonGroup label="편집">
+                  <IconButton label="새 폴더" hint={`${MOD}⇧N`} disabled={!writable} onClick={newFolder}>
                     <Glyph name="newfolder" />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title="올리기"
-                    aria-label="올리기"
+                  </IconButton>
+                  <IconButton
+                    label="올리기"
                     aria-haspopup="menu"
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
@@ -876,41 +886,37 @@ export function Browser({ user, loc, navigate, onLogout }) {
                     }}
                   >
                     <Glyph name="upload" />
-                  </button>
-                  <button type="button" className="icon-btn" disabled={!writable || !selEntries.length} onClick={trashSelected} title={`휴지통으로 이동 (${MOD}⌫)`} aria-label="휴지통으로 이동">
+                  </IconButton>
+                  <IconButton label="휴지통으로 이동" hint={`${MOD}⌫`} disabled={!writable || !selEntries.length} onClick={trashSelected}>
                     <Glyph name="trash" />
-                  </button>
-                  <span className="toolbar-sep" />
-                </>
+                  </IconButton>
+                </ButtonGroup>
               )}
-              <div className="segmented" role="group" aria-label="보기">
-                <button type="button" className={view === 'icons' ? 'is-on' : ''} onClick={() => setView('icons')} title="아이콘으로 보기" aria-pressed={view === 'icons'}>
-                  <Glyph name="grid" />
-                </button>
-                <button type="button" className={view === 'list' ? 'is-on' : ''} onClick={() => setView('list')} title="목록으로 보기" aria-pressed={view === 'list'}>
-                  <Glyph name="list" />
-                </button>
-                <button type="button" className={view === 'columns' ? 'is-on' : ''} onClick={() => setView('columns')} title="컬럼으로 보기" aria-pressed={view === 'columns'}>
-                  <Glyph name="columns" />
-                </button>
-              </div>
-              <button type="button" className="icon-btn" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), showQuickLook())} title="훑어보기 (Space)" aria-label="훑어보기">
-                <Glyph name="eye" />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                disabled={!selEntries.some((e) => e.type === 'file' || e.type === 'dir')}
-                onClick={() => download(selEntries)}
-                title={oneFile ? '내려받기' : '내려받기 (폴더·여러 항목은 zip)'}
-                aria-label="내려받기"
-              >
-                <Glyph name="download" />
-              </button>
+              <SegmentedControl
+                label="보기"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'icons', label: '아이콘으로 보기', icon: <Glyph name="grid" /> },
+                  { value: 'list', label: '목록으로 보기', icon: <Glyph name="list" /> },
+                  { value: 'columns', label: '컬럼으로 보기', icon: <Glyph name="columns" /> },
+                ]}
+              />
+              <ButtonGroup label="항목">
+                <IconButton label="훑어보기" hint="Space" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), showQuickLook())}>
+                  <Glyph name="eye" />
+                </IconButton>
+                <IconButton
+                  label={oneFile ? '내려받기' : '내려받기 (폴더·여러 항목은 zip)'}
+                  disabled={!selEntries.some((e) => e.type === 'file' || e.type === 'dir')}
+                  onClick={() => download(selEntries)}
+                >
+                  <Glyph name="download" />
+                </IconButton>
+              </ButtonGroup>
             </div>
           )}
         </header>
-
         <div className="banner-slot">
           {offlineView && (
             <div className="banner is-offline" role="status">
@@ -947,6 +953,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
               </button>
             </div>
           )}
+        </div>
         </div>
 
         {source === 'trash' ? (

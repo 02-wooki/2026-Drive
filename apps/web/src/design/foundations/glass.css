@@ -1,0 +1,92 @@
+/*
+ * 유리 재질 (Apple Liquid Glass 에서 영감, Apple 과 무관)
+ *
+ *  .glass                 유리 바탕: 흐림 + 채도 + 림 라이트 + 그림자. 변형이 없으면 tinted
+ *  .glass-tinted          틴트 유리 — 사이드바, 툴바 버튼, 잠금 알림, 메뉴, 패널
+ *  .glass-clear           맑은 유리 — 바탕 투명, 흐림과 림 라이트만
+ *  .glass-dark            어두운 유리 — 토스트 (흰 글자)
+ *  .glass-capsule / -panel  모양 (캡슐 / 둥근 판)
+ *
+ * 쓰는 쪽이 position(relative/fixed/absolute)을 정한다 — 림 라이트(::before)가 그 안에 깔린다.
+ * 주의: 유리 요소의 조상에 filter / opacity<1 / backdrop-filter / mask 가 있으면
+ *       그 조상이 backdrop root 가 되어 뒤 배경이 안 비친다.
+ * 굴절(가장자리에서 배경이 휘는 효과)은 Glass 의 refract 가 Chromium 에서만 덧붙인다.
+ */
+
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-inner), var(--glass-edge), var(--glass-shadow, var(--shadow-2));
+}
+.glass-tinted {
+  background: var(--glass-bg);
+}
+.glass-clear {
+  background: transparent;
+  --glass-shadow: var(--shadow-1);
+}
+.glass-dark {
+  background: var(--glass-bg-dark);
+  color: var(--glass-text-dark);
+  --glass-rim-hi: rgba(255, 255, 255, 0.45);
+  --glass-rim-lo: rgba(255, 255, 255, 0.06);
+  --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.glass-capsule {
+  border-radius: var(--radius-full);
+}
+.glass-panel {
+  border-radius: var(--radius-lg);
+}
+
+/* 가장자리 림 라이트: 왼쪽 위와 오른쪽 아래가 빛을 받는다 */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    145deg,
+    var(--glass-rim-hi),
+    var(--glass-rim-lo) 32%,
+    var(--glass-rim-lo) 68%,
+    color-mix(in srgb, var(--glass-rim-hi) 60%, transparent)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+
+/* 투명 효과를 못 쓰는 브라우저 · 투명도 줄이기 설정 → 불투명한 면 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-clear {
+    background: var(--glass-fallback);
+  }
+  .glass-dark {
+    background: var(--glass-fallback-dark);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .glass,
+  .glass-clear {
+    background: var(--glass-fallback);
+  }
+  .glass-dark {
+    background: var(--glass-fallback-dark);
+  }
+}
+@media (prefers-contrast: more) {
+  .glass {
+    box-shadow: 0 0 0 1px var(--text-3), var(--glass-shadow, var(--shadow-2));
+  }
+}

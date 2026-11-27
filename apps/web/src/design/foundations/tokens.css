@@ -1,0 +1,168 @@
+/*
+ * Wooki design tokens
+ * 앱과 무관한 값만 둔다 (나중에 @wooki/design 패키지로 떼어낼 수 있게).
+ * 라이트가 기본, 다크는 prefers-color-scheme 로 같은 이름을 다시 정의한다.
+ */
+
+:root {
+  /* ── 글꼴 ── 외부 글꼴 없이 시스템 글꼴만 (CSP 'self') */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'D2Coding', monospace;
+
+  --text-2xs: 10px; /* 배지 */
+  --text-xs: 11px; /* 보조 정보, 단축키 */
+  --text-sm: 12px; /* 표 머리, 경로, 작은 버튼 */
+  --text-md: 13px; /* 본문 기본 */
+  --text-lg: 15px; /* 강조 제목 */
+  --text-xl: 17px;
+  --text-2xl: 22px; /* 페이지 제목 */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.3;
+  --leading-normal: 1.45;
+  --leading-relaxed: 1.6;
+
+  /* ── 간격 ── 4px 단위 */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ── 모서리 ── */
+  --radius-xs: 4px; /* 작은 안쪽 요소 (입력, 배지 안) */
+  --radius-sm: 7px; /* 행, 버튼 안 항목 */
+  --radius-md: 11px; /* 메뉴, 세그먼트 */
+  --radius-lg: 16px; /* 대화상자, 패널, 토스트 */
+  --radius-xl: 22px; /* 창, 사이드바, 카드 */
+  --radius-full: 999px; /* 캡슐 */
+
+  /* ── 움직임 ── */
+  --dur-fast: 120ms;
+  --dur-med: 180ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.3, 1.4, 0.5, 1); /* 살짝 튕기는 등장 */
+
+  /* ── 쌓임 순서 ── */
+  --z-sticky: 1;
+  --z-overlay: 10;
+  --z-panel: 20;
+  --z-toast: 25;
+  --z-dialog: 30;
+  --z-menu: 40;
+  --z-lock: 50;
+
+  /* ── 색: 표면 ── */
+  --bg: #ffffff; /* 창 안쪽 (목록) */
+  --bg-zebra: #f5f6f7;
+  --surface-2: #f4f4f6; /* 창 안의 두 번째 면 (미리보기 바닥) */
+  --line: #dcdcdf;
+  --line-soft: #ebebed;
+
+  /* ── 색: 글자 ── */
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #9d9da3;
+
+  /* ── 색: 의미 ── */
+  --accent: #0a64d8;
+  --accent-text: #ffffff;
+  --danger: #d0342c;
+  --danger-text: #ffffff;
+  --ok: #2fb34a;
+  --warning: #f5a623;
+  --warning-strong: #b8740a; /* 흰 바탕 위 경고 아이콘·글자 */
+
+  /* ── 색: 상호작용 막 ── */
+  --hover: rgba(0, 0, 0, 0.05);
+  --press: rgba(0, 0, 0, 0.09);
+  --select-blur: #dcdcdf; /* 포커스 없는 선택 */
+  --fill: rgba(0, 0, 0, 0.045); /* 캡슐·세그먼트 바탕 */
+  --fill-raised: #ffffff; /* 세그먼트 선택 손잡이 */
+
+  /* ── 그림자 ── 3단계 */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.14);
+  --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.06), 0 28px 72px rgba(0, 0, 0, 0.2);
+  --scrim: rgba(0, 0, 0, 0.22); /* 모달 뒤 막 */
+
+  /* ── 배경 (창 뒤에 깔리는 조약돌 톤) ── */
+  --wallpaper-base: #e9edf3;
+  --wallpaper:
+    radial-gradient(60vmax 50vmax at 8% 12%, rgba(120, 214, 200, 0.55), transparent 62%),
+    radial-gradient(55vmax 45vmax at 92% 8%, rgba(150, 180, 255, 0.5), transparent 60%),
+    radial-gradient(50vmax 50vmax at 80% 95%, rgba(200, 180, 255, 0.45), transparent 60%),
+    radial-gradient(45vmax 40vmax at 12% 96%, rgba(255, 205, 170, 0.45), transparent 60%),
+    var(--wallpaper-base);
+
+  /* ── 유리 ── glass.css 가 쓴다 */
+  --glass-bg: rgba(255, 255, 255, 0.52); /* 기본 (사이드바·메뉴·패널) */
+  --glass-bg-dark: rgba(28, 28, 32, 0.72); /* 어두운 유리 (토스트) */
+  --glass-text-dark: #ffffff;
+  --glass-fallback: #f3f4f7; /* 투명 효과를 못 쓰거나 끈 경우 */
+  --glass-fallback-dark: #2c2c30;
+  --glass-blur: 22px;
+  --glass-saturate: 1.8;
+  --glass-rim-hi: rgba(255, 255, 255, 0.95);
+  --glass-rim-lo: rgba(255, 255, 255, 0.2);
+  --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+  --glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.1); /* 밝은 바탕에서 가장자리 구분 */
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e20;
+    --bg-zebra: #252528;
+    --surface-2: #19191b;
+    --line: #3a3a3d;
+    --line-soft: #2f2f32;
+
+    --text: #f2f2f7;
+    --text-2: #a1a1a8;
+    --text-3: #6f6f76;
+
+    --accent: #2f7cf6;
+    --danger: #ff5a4f;
+    --ok: #32c25a;
+    --warning: #ffb340;
+    --warning-strong: #ffc266;
+
+    --hover: rgba(255, 255, 255, 0.06);
+    --press: rgba(255, 255, 255, 0.11);
+    --select-blur: #46464b;
+    --fill: rgba(255, 255, 255, 0.07);
+    --fill-raised: #5a5a5f;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 14px 36px rgba(0, 0, 0, 0.45);
+    --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.3), 0 30px 80px rgba(0, 0, 0, 0.55);
+    --scrim: rgba(0, 0, 0, 0.45);
+
+    --wallpaper-base: #12151c;
+    --wallpaper:
+      radial-gradient(60vmax 50vmax at 8% 12%, rgba(45, 160, 150, 0.4), transparent 62%),
+      radial-gradient(55vmax 45vmax at 92% 8%, rgba(70, 100, 200, 0.38), transparent 60%),
+      radial-gradient(50vmax 50vmax at 80% 95%, rgba(120, 90, 200, 0.32), transparent 60%),
+      radial-gradient(45vmax 40vmax at 12% 96%, rgba(190, 120, 80, 0.26), transparent 60%),
+      var(--wallpaper-base);
+
+    --glass-bg: rgba(38, 38, 42, 0.5);
+    --glass-bg-dark: rgba(58, 58, 64, 0.72);
+    --glass-fallback: #2a2a2e;
+    --glass-rim-hi: rgba(255, 255, 255, 0.38);
+    --glass-rim-lo: rgba(255, 255, 255, 0.05);
+    --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+    --glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+  }
+}

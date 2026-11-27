@@ -50,7 +50,7 @@ export function PasskeyPage({ onDone }) {
 
   return (
     <main className="login">
-      <section className="login-card" aria-labelledby="passkey-title">
+      <section className="login-card glass" aria-labelledby="passkey-title">
         <AppMark className="login-mark" />
         <h1 id="passkey-title">본인 확인</h1>
 

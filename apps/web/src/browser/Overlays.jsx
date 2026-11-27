@@ -1,5 +1,6 @@
 // 확인 대화상자, 토스트, 우클릭 메뉴.
 import { useEffect, useRef } from 'react';
+import { useLiquidGlass } from '../design/index.js';
 
 /**
  * @param {{ title: string, message?: string, confirmLabel: string, danger?: boolean, busy?: boolean,
@@ -14,7 +15,7 @@ export function ConfirmDialog({ title, message, confirmLabel, danger = false, bu
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
       <div
-        className="dialog"
+        className="dialog glass"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
@@ -47,9 +48,12 @@ export function Toast({ toast, onClose }) {
     const t = setTimeout(onClose, toast.action ? 7000 : 4000);
     return () => clearTimeout(t);
   }, [toast, onClose]);
+  const ref = useRef(null);
+  const refraction = useLiquidGlass(ref, { active: toast });
   if (!toast) return null;
   return (
-    <div className={`toast ${toast.kind === 'error' ? 'toast-error' : ''}`} role="status" aria-live="polite">
+    <div ref={ref} className={`toast glass glass-dark ${toast.kind === 'error' ? 'toast-error' : ''}`} role="status" aria-live="polite">
+      {refraction}
       <span>{toast.text}</span>
       {toast.action && (
         <button
@@ -72,6 +76,7 @@ export function Toast({ toast, onClose }) {
  */
 export function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef(null);
+  const refraction = useLiquidGlass(ref, { bezel: 10, depth: 8 });
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -92,7 +97,7 @@ export function ContextMenu({ x, y, items, onClose }) {
   return (
     <div
       ref={ref}
-      className="ctx-menu"
+      className="ctx-menu glass"
       role="menu"
       style={{ left: x, top: y }}
       onKeyDown={(e) => {
@@ -107,6 +112,7 @@ export function ContextMenu({ x, y, items, onClose }) {
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {refraction}
       {items.map((it, i) =>
         it === 'sep' ? (
           <div key={`sep${i}`} className="ctx-sep" role="separator" />

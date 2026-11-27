@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { messageFor } from '../messages.js';
 import { AppMark } from '../browser/icons.jsx';
+import { ProviderMark } from './ProviderMark.jsx';
 
+// 버튼 문구는 각 사 가이드의 표준 문구를 따른다.
+//  - 카카오: "카카오 로그인" (가이드의 전체형 레이블 그대로)
+//  - Google: "Sign in with Google" 의 한국어 (현지화 권장)
+//  - GitHub: 별도 규정 없음 → Google 과 같은 형식
 const PROVIDER_LABEL = {
-  kakao: '카카오로 계속하기',
-  google: 'Google로 계속하기',
-  github: 'GitHub로 계속하기',
+  kakao: '카카오 로그인',
+  google: 'Google 계정으로 로그인',
+  github: 'GitHub 계정으로 로그인',
 };
 
 /** @param {{ error: string | null, onDone: () => void }} props */
@@ -34,7 +39,7 @@ export function LoginPage({ error, onDone }) {
 
   return (
     <main className="login">
-      <section className="login-card" aria-labelledby="login-title">
+      <section className="login-card glass" aria-labelledby="login-title">
         <AppMark className="login-mark" />
         <h1 id="login-title">Wooki Drive</h1>
         <p className="login-lede">집에 있는 데스크탑을 Finder처럼 둘러보는 개인 드라이브예요.</p>
@@ -49,7 +54,10 @@ export function LoginPage({ error, onDone }) {
           {providers === null && <div className="login-skeleton" aria-busy="true" />}
           {providers?.map((p) => (
             <a key={p} className={`login-btn login-btn-${p}`} href={`/auth/${p}/start`}>
-              {PROVIDER_LABEL[p] ?? p}
+              <span className="login-btn-mark">
+                <ProviderMark provider={p} />
+              </span>
+              <span className="login-btn-label">{PROVIDER_LABEL[p] ?? p}</span>
             </a>
           ))}
           {providers?.length === 0 && !devLogin && <p className="login-empty">설정된 로그인 방식이 없어요.</p>}

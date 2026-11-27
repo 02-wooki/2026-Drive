@@ -39,7 +39,7 @@ export function UploadPanel() {
       : '업로드 완료';
 
   return (
-    <section className={`upload-panel ${collapsed ? 'is-collapsed' : ''}`} aria-label="업로드">
+    <section className={`upload-panel glass ${collapsed ? 'is-collapsed' : ''}`} aria-label="업로드">
       <header className="upload-head">
         <button type="button" className="upload-title" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed}>
           {title}

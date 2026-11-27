@@ -5,6 +5,7 @@ import { contentUrl, fetchTextPreview } from '../api.js';
 import { messageFor } from '../messages.js';
 import { kindOf, kindLabel, formatSize, formatDate } from './fileTypes.js';
 import { EntryIcon, Glyph } from './icons.jsx';
+import { ButtonGroup, IconButton } from '../design/index.js';
 
 export function QuickLook({ entry, source, onClose, onKeyDown }) {
   const ref = useRef(null);
@@ -31,21 +32,25 @@ export function QuickLook({ entry, source, onClose, onKeyDown }) {
         }}
       >
         <header className="ql-bar">
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="닫기" title="닫기 (Space)">
-            <Glyph name="close" />
-          </button>
+          <ButtonGroup label="창">
+            <IconButton label="닫기" hint="Space" onClick={onClose}>
+              <Glyph name="close" />
+            </IconButton>
+          </ButtonGroup>
           <div className="ql-title">
             <span className="ql-name">{entry.name}</span>
             <span className="ql-meta">
               {kindLabel(entry)} · {formatSize(entry.size)} · {formatDate(entry.mtimeMs)}
             </span>
           </div>
-          <a className="icon-btn" href={url} target="_blank" rel="noopener" title="새 탭에서 열기" aria-label="새 탭에서 열기">
-            <Glyph name="open" />
-          </a>
-          <a className="icon-btn" href={contentUrl(source, entry.path, 'attachment')} title="다운로드" aria-label="다운로드">
-            <Glyph name="download" />
-          </a>
+          <ButtonGroup label="파일">
+            <IconButton label="새 탭에서 열기" href={url} target="_blank" rel="noopener">
+              <Glyph name="open" />
+            </IconButton>
+            <IconButton label="다운로드" href={contentUrl(source, entry.path, 'attachment')}>
+              <Glyph name="download" />
+            </IconButton>
+          </ButtonGroup>
         </header>
         <div className={`ql-body ql-${kind}`}>
           <Preview key={entry.path} kind={kind} url={url} entry={entry} source={source} />
