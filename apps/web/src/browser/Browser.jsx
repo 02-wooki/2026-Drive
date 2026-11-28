@@ -27,7 +27,7 @@ import { UploadPanel } from './UploadPanel.jsx';
 import { UploadConflictDialog } from './UploadConflictDialog.jsx';
 import { ConfirmDialog, ContextMenu, Toast } from './Overlays.jsx';
 import { installLongPress } from './longPress.js';
-import { ButtonGroup, IconButton, SegmentedControl } from '../design/index.js';
+import { GlassIconButton, SegmentedControl } from '../design/index.js';
 
 const ROOT_LABEL = { files: '데스크탑', demo: '데모 폴더', trash: '휴지통' };
 const DRAG_TYPE = 'application/x-wooki-paths';
@@ -929,23 +929,23 @@ export function Browser({ user, loc, navigate, onLogout }) {
       <section className="pane" ref={paneRef}>
         <div className="pane-header" ref={headerRef}>
         <header className="toolbar">
-          <ButtonGroup label="탐색">
-            <IconButton label="뒤로" hint={`${MOD}[`} disabled={!canGoBack} onClick={() => history.back()}>
+          <div className="glass-icon-row" role="group" aria-label="탐색">
+            <GlassIconButton label="뒤로" hint={`${MOD}[`} disabled={!canGoBack} onClick={() => history.back()}>
               <Glyph name="back" />
-            </IconButton>
-            <IconButton label="앞으로" hint={`${MOD}]`} disabled={!canGoForward} onClick={() => history.forward()}>
+            </GlassIconButton>
+            <GlassIconButton label="앞으로" hint={`${MOD}]`} disabled={!canGoForward} onClick={() => history.forward()}>
               <Glyph name="forward" />
-            </IconButton>
-          </ButtonGroup>
+            </GlassIconButton>
+          </div>
           <h1 className="toolbar-title">{title}</h1>
           {source !== 'trash' && (
             <div className="toolbar-actions">
               {canUpload && (
-                <ButtonGroup label="편집">
-                  <IconButton label="새 폴더" hint={`${MOD}⇧N`} disabled={!writable} onClick={newFolder}>
+                <div className="glass-icon-row" role="group" aria-label="편집">
+                  <GlassIconButton label="새 폴더" hint={`${MOD}⇧N`} disabled={!writable} onClick={newFolder}>
                     <Glyph name="newfolder" />
-                  </IconButton>
-                  <IconButton
+                  </GlassIconButton>
+                  <GlassIconButton
                     label="올리기"
                     aria-haspopup="menu"
                     onClick={(e) => {
@@ -961,11 +961,11 @@ export function Browser({ user, loc, navigate, onLogout }) {
                     }}
                   >
                     <Glyph name="upload" />
-                  </IconButton>
-                  <IconButton label="휴지통으로 이동" hint={`${MOD}⌫`} disabled={!writable || !selEntries.length} onClick={trashSelected}>
+                  </GlassIconButton>
+                  <GlassIconButton label="휴지통으로 이동" hint={`${MOD}⌫`} disabled={!writable || !selEntries.length} onClick={trashSelected}>
                     <Glyph name="trash" />
-                  </IconButton>
-                </ButtonGroup>
+                  </GlassIconButton>
+                </div>
               )}
               <SegmentedControl
                 label="보기"
@@ -977,18 +977,18 @@ export function Browser({ user, loc, navigate, onLogout }) {
                   { value: 'columns', label: '컬럼으로 보기', icon: <Glyph name="columns" /> },
                 ]}
               />
-              <ButtonGroup label="항목">
-                <IconButton label="훑어보기" hint="Space" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), showQuickLook())}>
+              <div className="glass-icon-row" role="group" aria-label="항목">
+                <GlassIconButton label="훑어보기" hint="Space" disabled={!(oneFile && canPreview(oneFile))} onClick={() => (selectOnly(oneFile.path), showQuickLook())}>
                   <Glyph name="eye" />
-                </IconButton>
-                <IconButton
+                </GlassIconButton>
+                <GlassIconButton
                   label={oneFile ? '내려받기' : '내려받기 (폴더·여러 항목은 zip)'}
                   disabled={!selEntries.some((e) => e.type === 'file' || e.type === 'dir')}
                   onClick={() => download(selEntries)}
                 >
                   <Glyph name="download" />
-                </IconButton>
-              </ButtonGroup>
+                </GlassIconButton>
+              </div>
             </div>
           )}
         </header>

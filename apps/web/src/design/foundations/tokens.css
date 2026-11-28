@@ -90,9 +90,9 @@
   --fill-raised: #ffffff; /* 세그먼트 선택 손잡이 */
 
   /* ── 그림자 ── 3단계 */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.14);
-  --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.06), 0 28px 72px rgba(0, 0, 0, 0.2);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.03);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.03), 0 12px 32px rgba(0, 0, 0, 0.07);
+  --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.03), 0 28px 72px rgba(0, 0, 0, 0.1);
   --scrim: rgba(0, 0, 0, 0.22); /* 모달 뒤 막 */
 
   /* ── 배경 (창 뒤에 깔리는 조약돌 톤) ── */
@@ -165,9 +165,9 @@
     --fill: rgba(255, 255, 255, 0.07);
     --fill-raised: #5a5a5f;
 
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
-    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 14px 36px rgba(0, 0, 0, 0.45);
-    --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.3), 0 30px 80px rgba(0, 0, 0, 0.55);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.16), 0 14px 36px rgba(0, 0, 0, 0.24);
+    --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.16), 0 30px 80px rgba(0, 0, 0, 0.3);
     --scrim: rgba(0, 0, 0, 0.45);
 
     --wallpaper-base: #12151c;

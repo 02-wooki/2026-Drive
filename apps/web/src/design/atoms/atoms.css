@@ -81,6 +81,51 @@
   pointer-events: none;
 }
 
+/* ── 동그란 유리 아이콘 버튼 (.glass-icon-btn) ── */
+.glass-icon-btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: var(--glass-icon);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: scale var(--dur-fast) var(--ease-spring);
+}
+.glass-icon-btn-sm {
+  width: 26px;
+  height: 26px;
+}
+.glass-icon-btn svg {
+  filter: drop-shadow(0 0 1px var(--glass-halo)) drop-shadow(0 0 3px var(--glass-halo));
+}
+.glass-icon-btn:hover:not(:disabled):not(.is-disabled) {
+  scale: 1.06;
+}
+.glass-icon-btn:active:not(:disabled):not(.is-disabled) {
+  scale: 0.94;
+}
+.glass-icon-btn:disabled,
+.glass-icon-btn.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+/* 동그란 버튼 여러 개를 나란히 둘 때 (묶음 배경 없이 간격만) */
+.glass-icon-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-icon-btn {
+    transition: none;
+  }
+}
 
 /* ── 입력칸 (.input) ───────────────────────────── */
 .input {

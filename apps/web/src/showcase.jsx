@@ -3,7 +3,7 @@ import { StrictMode, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './design/index.css';
 import {
-  Glass, Button, IconButton, ButtonGroup, SegmentedControl,
+  Glass, Button, IconButton, GlassIconButton, SegmentedControl,
   Input, Checkbox, Switch, Badge, Divider, Spinner, Card, TextField, Section, Dialog, Menu, Toast,
 } from './design/index.js';
 import { EntryIcon, Glyph } from './browser/icons.jsx';
@@ -240,20 +240,23 @@ function App() {
       </Glass>
 
       <Glass shape="panel" className="sc-sec">
-        <h2>ButtonGroup · SegmentedControl (molecule)</h2>
+        <h2>GlassIconButton (atom) · SegmentedControl (molecule)</h2>
         <div className="sc-stripes sc-row">
-          <Item cap="ButtonGroup tinted">
-            <ButtonGroup label="탐색">
-              <IconButton label="뒤로"><Glyph name="back" /></IconButton>
-              <IconButton label="앞으로" disabled><Glyph name="forward" /></IconButton>
-            </ButtonGroup>
+          <Item cap="GlassIconButton 나란히">
+            <div className="glass-icon-row" role="group" aria-label="탐색">
+              <GlassIconButton label="뒤로"><Glyph name="back" /></GlassIconButton>
+              <GlassIconButton label="앞으로" disabled><Glyph name="forward" /></GlassIconButton>
+            </div>
           </Item>
-          <Item cap="ButtonGroup clear">
-            <ButtonGroup label="편집" variant="clear">
-              <IconButton label="새 폴더"><Glyph name="newfolder" /></IconButton>
-              <IconButton label="올리기"><Glyph name="upload" /></IconButton>
-              <IconButton label="휴지통"><Glyph name="trash" /></IconButton>
-            </ButtonGroup>
+          <Item cap="GlassIconButton clear">
+            <div className="glass-icon-row" role="group" aria-label="편집">
+              <GlassIconButton label="새 폴더" variant="clear"><Glyph name="newfolder" /></GlassIconButton>
+              <GlassIconButton label="올리기" variant="clear"><Glyph name="upload" /></GlassIconButton>
+              <GlassIconButton label="휴지통" variant="clear"><Glyph name="trash" /></GlassIconButton>
+            </div>
+          </Item>
+          <Item cap="GlassIconButton sm">
+            <GlassIconButton label="닫기" size="sm"><Glyph name="close" /></GlassIconButton>
           </Item>
           <Item cap="SegmentedControl">
             <SegmentedControl

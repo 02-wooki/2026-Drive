@@ -5,7 +5,7 @@ import { contentUrl, fetchTextPreview } from '../api.js';
 import { messageFor } from '../messages.js';
 import { kindOf, kindLabel, formatSize, formatDate } from './fileTypes.js';
 import { EntryIcon, Glyph } from './icons.jsx';
-import { ButtonGroup, IconButton } from '../design/index.js';
+import { GlassIconButton } from '../design/index.js';
 
 export function QuickLook({ entry, source, onClose, onKeyDown }) {
   const ref = useRef(null);
@@ -32,25 +32,25 @@ export function QuickLook({ entry, source, onClose, onKeyDown }) {
         }}
       >
         <header className="ql-bar">
-          <ButtonGroup label="창">
-            <IconButton label="닫기" hint="Space" onClick={onClose}>
+          <div className="glass-icon-row" role="group" aria-label="창">
+            <GlassIconButton label="닫기" hint="Space" onClick={onClose}>
               <Glyph name="close" />
-            </IconButton>
-          </ButtonGroup>
+            </GlassIconButton>
+          </div>
           <div className="ql-title">
             <span className="ql-name">{entry.name}</span>
             <span className="ql-meta">
               {kindLabel(entry)} · {formatSize(entry.size)} · {formatDate(entry.mtimeMs)}
             </span>
           </div>
-          <ButtonGroup label="파일">
-            <IconButton label="새 탭에서 열기" href={url} target="_blank" rel="noopener">
+          <div className="glass-icon-row" role="group" aria-label="파일">
+            <GlassIconButton label="새 탭에서 열기" href={url} target="_blank" rel="noopener">
               <Glyph name="open" />
-            </IconButton>
-            <IconButton label="다운로드" href={contentUrl(source, entry.path, 'attachment')} download="">
+            </GlassIconButton>
+            <GlassIconButton label="다운로드" href={contentUrl(source, entry.path, 'attachment')} download="">
               <Glyph name="download" />
-            </IconButton>
-          </ButtonGroup>
+            </GlassIconButton>
+          </div>
         </header>
         <div className={`ql-body ql-${kind}`}>
           <Preview key={entry.path} kind={kind} url={url} entry={entry} source={source} />

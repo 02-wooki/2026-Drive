@@ -8,7 +8,7 @@
  *  .glass-content         도형 유리 — 유리 위에 올리는 도형. 바탕 유리보다 희고 반사가 강하다
  *  --glass-tint           (선택) 바탕 유리에 색을 섞는다. Glass 의 tint 로 넣는다
  *  .glass-dark            어두운 유리 — 토스트 (흰 글자)
- *  .glass-capsule / -panel  모양 (캡슐 / 둥근 판)
+ *  .glass-capsule / -panel / -circle  모양 (캡슐 / 둥근 판 / 원)
  *
  * 쓰는 쪽이 position(relative/fixed/absolute)을 정한다 — 림 라이트(::before)가 그 안에 깔린다.
  * 주의: 유리 요소의 조상에 filter / opacity<1 / backdrop-filter / mask 가 있으면
@@ -30,7 +30,7 @@
   --_glass-fill: color-mix(in srgb, var(--glass-tint, transparent) 20%, var(--glass-bg-content));
   --glass-rim-hi: rgba(255, 255, 255, 1);
   --glass-inner: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3);
-  --glass-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  --glass-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
 }
 .glass-thick {
   --_glass-fill: var(--glass-bg-thick);
@@ -74,6 +74,9 @@
 
 .glass-capsule {
   border-radius: var(--radius-full);
+}
+.glass-circle {
+  border-radius: 50%;
 }
 .glass-panel {
   border-radius: var(--radius-lg);

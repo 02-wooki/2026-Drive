@@ -1,23 +1,17 @@
-/* Molecules: 버튼 묶음(.btn-group), 세그먼트(.segmented). 둘 다 Glass 캡슐 위에 올라간다.
+/* Molecules: 세그먼트(.segmented). Glass 캡슐 위에 올라간다.
    유리가 얇아 뒤가 비치므로 아이콘은 가장 진한 색 + 둘레 번짐(halo)으로 어떤 배경에서도 읽히게 한다. */
 
-.btn-group,
 .segmented {
   display: inline-flex;
   align-items: center;
   gap: var(--space-0-5);
   padding: var(--space-0-5);
 }
-.btn-group .icon-btn,
 .segmented-btn {
   color: var(--glass-icon);
 }
-.btn-group .icon-btn svg,
 .segmented-btn svg {
   filter: drop-shadow(0 0 1px var(--glass-halo)) drop-shadow(0 0 3px var(--glass-halo));
-}
-.btn-group .icon-btn:hover:not(:disabled):not(.is-disabled) {
-  background: var(--press);
 }
 
 .segmented {
@@ -120,7 +114,7 @@
   --glass-blur-edge: 0px;
   /* 거의 투명한 유리 (아주 살짝 밝게). 굴절은 useGlassRefraction 이 backdrop-filter 로 건다 */
   background: color-mix(in srgb, var(--fill-raised) 10%, transparent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09);
   transition:
     scale var(--dur-med) var(--ease-spring),
     background var(--dur-fast),

@@ -8,7 +8,7 @@ import { cx } from '../lib/cx.js';
  *   as?: keyof JSX.IntrinsicElements,
  *   variant?: 'tinted' | 'thick' | 'clear' | 'content' | 'dark',
  *   tint?: string,       // 바탕에 섞을 색 (CSS 색). 예: '#3a7bff'
- *   shape?: 'capsule' | 'panel',
+ *   shape?: 'capsule' | 'panel' | 'circle',
  *   refract?: boolean,   // Chromium 에서 가장자리 굴절 + 색수차 (기본 켜짐, 아주 큰 면은 자동 생략)
  *   active?: unknown,    // 내용이 바뀌어 크기를 다시 재야 할 때 바꿔 줄 값
  *   ref?: import('react').Ref<HTMLElement>,

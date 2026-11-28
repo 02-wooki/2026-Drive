@@ -4,11 +4,11 @@
 // atoms
 export { Glass } from './atoms/Glass.jsx';
 export { Button, IconButton } from './atoms/Button.jsx';
+export { GlassIconButton } from './atoms/GlassIconButton.jsx';
 export { Input, TextArea } from './atoms/Input.jsx';
 export { Checkbox, Switch } from './atoms/Toggle.jsx';
 export { Badge, Divider, Spinner } from './atoms/Indicators.jsx';
 // molecules
-export { ButtonGroup } from './molecules/ButtonGroup.jsx';
 export { SegmentedControl } from './molecules/SegmentedControl.jsx';
 export { Card } from './molecules/Card.jsx';
 export { TextField } from './molecules/TextField.jsx';
