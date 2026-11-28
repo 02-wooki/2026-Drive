@@ -47,7 +47,7 @@ export function QuickLook({ entry, source, onClose, onKeyDown }) {
             <IconButton label="새 탭에서 열기" href={url} target="_blank" rel="noopener">
               <Glyph name="open" />
             </IconButton>
-            <IconButton label="다운로드" href={contentUrl(source, entry.path, 'attachment')}>
+            <IconButton label="다운로드" href={contentUrl(source, entry.path, 'attachment')} download="">
               <Glyph name="download" />
             </IconButton>
           </ButtonGroup>

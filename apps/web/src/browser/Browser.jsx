@@ -358,7 +358,14 @@ export function Browser({ user, loc, navigate, onLogout }) {
       } catch (e) {
         return notify({ kind: 'error', text: messageFor(e) });
       }
-      location.assign(url);
+      // location.assign 은 페이지 이동으로 취급돼 업로드 중엔 '나가시겠어요?' 경고가 뜨고,
+      // 응답이 오류면 정말로 떠나 업로드가 끊긴다. download 링크는 이동하지 않는다.
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = ''; // 파일 이름은 서버의 Content-Disposition 을 따른다
+      document.body.append(a);
+      a.click();
+      a.remove();
     },
     [source, notify],
   );
