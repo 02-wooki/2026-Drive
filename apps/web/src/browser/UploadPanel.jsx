@@ -53,8 +53,9 @@ export function UploadPanel() {
   const sent = items.reduce((s, i) => s + (i.state === 'done' ? i.size : i.sent), 0);
   const failed = groups.problems.filter((i) => i.state === 'error').length;
   const cancelled = groups.problems.length - failed;
+  const rate = activeCount ? uploads.currentRate() : 0;
   const title = activeCount
-    ? `${activeCount.toLocaleString()}개 업로드 중 · ${formatSize(sent)} / ${formatSize(total)}`
+    ? `${activeCount.toLocaleString()}개 업로드 중 · ${formatSize(sent)} / ${formatSize(total)}${rate ? ` · ${formatSize(rate)}/초` : ''}`
     : preparing && !items.length
       ? '업로드 준비 중'
       : failed

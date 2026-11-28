@@ -65,6 +65,46 @@ const sleep = (ms, signal) =>
     });
   });
 
+/**
+ * 업로드 요청. fetch 는 보낸 바이트 수를 알려주지 않아 XHR 을 쓴다 → 조각 도중에도 진행률·속도가 움직인다.
+ * (보낸 바이트는 Cloudflare 까지 기준. 다 보낸 뒤 응답이 오기까지 잠깐 더 걸릴 수 있다)
+ * @returns {Promise<any>} 응답 JSON. 실패면 ApiError(+received), 취소면 AbortError
+ */
+function sendWithProgress(method, url, body, headers, signal, onProgress) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException('aborted', 'AbortError'));
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    xhr.withCredentials = true;
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => onProgress?.(e.loaded);
+    const onAbort = () => xhr.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    const done = (fn) => {
+      signal.removeEventListener('abort', onAbort);
+      fn();
+    };
+    xhr.onabort = () => done(() => reject(new DOMException('aborted', 'AbortError')));
+    xhr.onerror = () => done(() => reject(new ApiError(0, 'NETWORK')));
+    xhr.ontimeout = xhr.onerror;
+    xhr.onload = () =>
+      done(() => {
+        let data = {};
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+        reportAuthLost(data.error);
+        const err = new ApiError(xhr.status, data.error ?? `HTTP_${xhr.status}`);
+        if (Number.isSafeInteger(data.received)) err.received = data.received;
+        reject(err);
+      });
+    xhr.send(body);
+  });
+}
+
+const RATE_WINDOW_MS = 3000;
+
 /** 재시도해 볼 만한 오류인가 */
 const retryable = (err) => err?.code === 'NETWORK' || err?.status >= 500 || err?.code === 'UPLOAD_BUSY';
 
@@ -91,6 +131,43 @@ class UploadManager {
   onComplete(fn) {
     this.completeListeners.add(fn);
     return () => this.completeListeners.delete(fn);
+  }
+
+  /**
+   * 지금 전체 업로드 속도(바이트/초): 최근 3초 동안 실제로 보낸 바이트(XHR 진행 이벤트) ÷ 시간.
+   * 큰 파일 조각·작은 파일 묶음을 동시에 보내도 모두 합친 값이다.
+   */
+  currentRate() {
+    const now = performance.now();
+    const samples = this.#samples;
+    while (samples.length > 1 && now - samples[1].t > RATE_WINDOW_MS) samples.shift();
+    if (samples.length === 0 || now - samples.at(-1).t > RATE_WINDOW_MS) return 0; // 한동안 보낸 게 없음
+    const first = samples[0];
+    const secs = (now - first.t) / 1000;
+    return secs > 0.3 ? (this.#sentBytes - first.total) / secs : 0;
+  }
+
+  #sentBytes = 0; // 지금까지 보낸 바이트 (재전송 포함, 늘어나기만 함)
+  #samples = []; // { t, total } — 0.2초에 하나
+
+  #countSent(delta) {
+    if (!(delta > 0)) return;
+    this.#sentBytes += delta;
+    const t = performance.now();
+    const last = this.#samples.at(-1);
+    if (!last || t - last.t >= 200) this.#samples.push({ t, total: this.#sentBytes });
+    else last.total = this.#sentBytes;
+  }
+
+  /** 요청 하나의 진행 이벤트(누적 loaded) → 새로 보낸 만큼만 센다 */
+  #progressCounter(onLoaded) {
+    let prev = 0;
+    return (loaded) => {
+      this.#countSent(loaded - prev);
+      prev = Math.max(prev, loaded);
+      onLoaded(loaded);
+      this.#emit();
+    };
   }
 
   // 파일이 몇만 개일 때 진행 상황이 바뀔 때마다 전체를 복사·다시 그리지 않도록 0.1초에 한 번으로 모은다
@@ -270,7 +347,12 @@ class UploadManager {
       const q = new URLSearchParams({ id: randomId(), manifestBytes: String(manifest.byteLength), manifestSha256: await bytesSha256Hex(manifest) });
       const body = new Blob([manifest, ...parts]);
       const t0 = performance.now();
-      const results = await this.#sendBatch(`${api.uploads.base('desktop')}/batch?${q}`, body, ctrl.signal);
+      // 묶음은 파일별 진행률이 없으니 보낸 비율만큼 나눠서 보여준다
+      const onLoaded = (loaded) => {
+        const f = body.size ? Math.min(1, loaded / body.size) : 1;
+        for (const it of sending) if (it.state === 'uploading') it.sent = Math.floor(it.size * f);
+      };
+      const results = await this.#sendBatch(`${api.uploads.base('desktop')}/batch?${q}`, body, ctrl.signal, onLoaded);
       const secs = (performance.now() - t0) / 1000;
       sending.forEach((it, i) => {
         const r = results[i];
@@ -301,28 +383,15 @@ class UploadManager {
     }
   }
 
-  async #sendBatch(url, body, signal) {
+  async #sendBatch(url, body, signal, onLoaded) {
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await fetch(url, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body,
-          signal,
-        }).catch((e) => {
-          if (e?.name === 'AbortError') throw e;
-          throw new ApiError(0, 'NETWORK');
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          reportAuthLost(data.error);
-          throw new ApiError(res.status, data.error ?? `HTTP_${res.status}`);
-        }
+        const data = await sendWithProgress('POST', url, body, { 'Content-Type': 'application/octet-stream' }, signal, this.#progressCounter(onLoaded));
         if (!Array.isArray(data.results)) throw new ApiError(502, 'AGENT_BAD_RESPONSE');
         return data.results;
       } catch (err) {
         if (err?.name === 'AbortError') throw err;
+        onLoaded(0);
         // 같은 id 로 재시도 → 이미 처리됐으면 서버가 그 결과를 준다. 처리 중이면 잠시 뒤 다시.
         if (!(retryable(err) || err?.code === 'BATCH_IN_PROGRESS') || attempt >= MAX_RETRIES) throw err;
         await sleep(Math.min(30_000, 1000 * 2 ** attempt), signal);
@@ -370,31 +439,26 @@ class UploadManager {
       try {
         const hash = await sha256Hex(blob);
         const t0 = performance.now();
-        const res = await fetch(`${base}/${encodeURIComponent(id)}?offset=${received}`, {
-          method: 'PUT',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Sha256': hash },
-          body: blob,
+        const start = received;
+        const data = await sendWithProgress(
+          'PUT',
+          `${base}/${encodeURIComponent(id)}?offset=${received}`,
+          blob,
+          { 'Content-Type': 'application/octet-stream', 'X-Chunk-Sha256': hash },
           signal,
-        }).catch((e) => {
-          if (e?.name === 'AbortError') throw e;
-          throw new ApiError(0, 'NETWORK');
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          reportAuthLost(data.error);
-          const err = new ApiError(res.status, data.error ?? `HTTP_${res.status}`);
-          if (Number.isSafeInteger(data.received)) err.received = data.received;
-          throw err;
-        }
-        const secs = (performance.now() - t0) / 1000;
-        it.rate = secs > 0 ? blob.size / secs : undefined;
+          this.#progressCounter((loaded) => {
+            it.sent = start + loaded; // 조각 도중에도 움직인다
+            const secs = (performance.now() - t0) / 1000;
+            if (secs > 0.3) it.rate = loaded / secs;
+          }),
+        );
         received = data.received;
         it.sent = received;
         attempt = 0;
         this.#emit();
       } catch (err) {
         if (err?.name === 'AbortError') throw err;
+        it.sent = received; // 조각 도중 실패 → 서버가 받은 데까지로 되돌림
         if (err?.code === 'OFFSET_MISMATCH' && Number.isSafeInteger(err.received)) {
           received = err.received; // 서버 기준으로 다시 맞춤
           it.sent = received;
