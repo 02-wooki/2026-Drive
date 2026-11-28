@@ -1,7 +1,8 @@
 // 유리 요소에 SVG 필터를 덧붙이는 훅. 한 필터 안에서 차례로
 //  1) 고르지 않은 흐림: 가운데는 얇게(--glass-blur), 가장자리로 갈수록 두껍게(--glass-blur-edge)
-//  2) 굴절: 볼록 유리 단면(스쿼클)과 스넬 법칙으로 계산. 가운데는 그대로, 면이 서는 가장자리일수록
-//     크게 꺾여 맨 끝에는 가운데 쪽 풍경이 비친다 (displacementMap.js)
+//  2) 굴절(표준: 물리 렌즈): 볼록 유리 단면(스쿼클)·스넬 법칙·두께로 빛이 밀리는 거리를 계산한다.
+//     가운데는 그대로, 가장자리 띠 안에서 윤곽의 법선 방향으로 꺾이고 맨 끝은 두께 0 이라 다시 0
+//     (displacementMap.js 의 makePhysicalLensMap). --glass-thickness: 0 이면 예전 정규화 렌즈(makeLensMap)
 //  3) 색수차: 면 전체에 약하게, 가장자리에서 굴절과 함께 커진다
 //  4) 두 번째 가장자리: 뒤 배경을 넓게 흐려 채도를 올린 "대표 색"을 맨 바깥 흰 반사광 바로 안쪽에
 //     진하게 두르고, 안쪽으로 부드럽게 번지게 한다 (흰 반사광은 glass.css 의 ::before)
@@ -12,7 +13,7 @@
 // 그 밖의 브라우저나 "투명도 줄이기" 설정에서는 아무것도 하지 않고 glass.css 의 흐림 유리만 남는다.
 // iOS 의 Chrome(CriOS)은 WebKit 이라 "Chrome/" 문자열로 구분한다.
 import { Fragment, useEffect, useId, useState, useSyncExternalStore } from 'react';
-import { makeLensMap, makeRadialMap, makeRimMask } from './displacementMap.js';
+import { makeLensMap, makePhysicalLensMap, makeRadialMap, makeRimMask } from './displacementMap.js';
 import { getGlassQuality, subscribeGlassQuality } from './glassQuality.js';
 
 const SVG_BACKDROP = typeof navigator !== 'undefined' && /Chrome\//.test(navigator.userAgent);
@@ -29,10 +30,12 @@ const B_TO_ALPHA = '0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0';
  * @param {{ current: HTMLElement | null }} ref .glass 요소
  * @param {{ bezel?: number, depth?: number, aberration?: number, aberrationBase?: number, active?: unknown }} [opts]
  *   bezel: 굴곡이 있는 가장자리 폭(px). 없으면 --glass-bezel × 짧은 변의 절반
- *   depth: 맨 가장자리에서 배경을 끌어오는 거리(px). 없으면 --glass-refract × 짧은 변의 절반
+ *   depth: (--glass-thickness: 0 일 때만) 맨 가장자리에서 배경을 끌어오는 거리(px). 없으면 --glass-refract × 짧은 변의 절반
  *   aberration: 가장자리 색수차. 굴절에 비례해 빨강이 파랑보다 이만큼 더 휜다 (0~1). 없으면 --glass-aberration
  *   aberrationBase: 면 전체에 깔리는 약한 색수차(px, 가운데 0 → 가장자리 최대, 직선). 없으면 --glass-aberration-base
  *   active: 요소가 조건부로 그려질 때 다시 측정하게 하는 값 (예: 토스트 객체)
+ *   기본은 물리 렌즈: 밀리는 거리를 --glass-thickness(두께 ÷ 가장자리 폭)·--glass-ior 로 계산하고
+ *   (depth·--glass-refract 무시) 방향은 윤곽의 법선을 따른다. --glass-thickness: 0 이면 예전 정규화 렌즈
  * @returns {import('react').ReactNode} 요소 옆에 그려 둘 숨은 <svg> (필터 정의)
  */
 export function useGlassRefraction(ref, { bezel, depth, aberration, aberrationBase, active = true } = {}) {
@@ -71,16 +74,19 @@ export function useGlassRefraction(ref, { bezel, depth, aberration, aberrationBa
         rimA: num(null, '--glass-rim-tint', 0),
         rimSat: num(null, '--glass-rim-saturate', 2.6),
         rimDeepen: num(null, '--glass-rim-deepen', 2),
+        thick: num(null, '--glass-thickness', 1.5),
       };
       const key = JSON.stringify([w, h, radius, p]);
       if (!w || !h || key === last) return;
       last = key;
       if (w * h > MAX_PIXELS) return setMap(null);
+      const physical = p.thick > 0 ? makePhysicalLensMap(w, h, radius, p.bz, p.ior, p.thick) : null;
+      if (physical) p.d = physical.maxShift;
       setMap({
         w,
         h,
         ...p,
-        lens: makeLensMap(w, h, p.bz, p.ior),
+        lens: physical ? physical.url : makeLensMap(w, h, p.bz, p.ior),
         radial: p.ca > 0 || p.base > 0 ? makeRadialMap(w, h) : null,
         rim: p.rimW > 0 && p.rimA > 0 ? makeRimMask(w, h, radius, Math.min(p.rimW, Math.min(w, h) / 4)) : null,
         // 면 전체 크기만큼 흐려 "뒤 배경에서 가장 많은 색"에 가깝게 만든다 (위치마다 색이 달라지지 않게)

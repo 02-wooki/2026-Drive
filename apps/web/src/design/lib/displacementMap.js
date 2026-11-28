@@ -53,6 +53,68 @@ function refractionProfile(ior) {
 }
 
 /**
+ * 물리 렌즈 맵 — 두께까지 넣어 실제 빛이 얼마나 옆으로 밀리는지(px)를 계산한다.
+ *
+ * makeLensMap 과 같은 스쿼클 단면·스넬 법칙을 쓰되 두 가지가 다르다.
+ *  1) 밀리는 양 = 그 자리의 유리 두께 × tan(꺾인 각). 맨 가장자리는 두께가 0 이라 밀림도 0 이고,
+ *     가장자리 바로 안쪽(면이 서 있고 두께도 있는 곳)에서 가장 크게 밀린다. 크기를 따로 정하지 않고
+ *     굴절률·두께·가장자리 폭에서 나온다 (maxShift 로 돌려준다).
+ *  2) 방향은 둥근 사각형 윤곽의 법선. 캡슐의 둥근 끝은 둥글게 꺾인다 (축을 따로 계산하지 않는다).
+ *     모서리 반지름이 가장자리 폭보다 작은 큰 판은, 법선·거리를 반지름 = 가장자리 폭인 윤곽으로 재서
+ *     모서리 대각선에 꺾인 자국이 생기지 않게 한다. 그 윤곽 밖(실제 모서리 끝 조각)은 두께 0 으로 본다.
+ *
+ * @param {number} w
+ * @param {number} h
+ * @param {number} radius 모서리 반지름(px)
+ * @param {number} bezel 굴곡이 있는 가장자리 폭(px)
+ * @param {number} ior 굴절률
+ * @param {number} thickness 유리 두께 ÷ 가장자리 폭 (1 이면 가장자리가 1/4 원에 가까운 단면)
+ * @returns {{ url: string, maxShift: number }} maxShift: 가장 크게 밀리는 거리(px) = feDisplacementMap 세기
+ */
+export function makePhysicalLensMap(w, h, radius, bezel, ior, thickness) {
+  const hx = w / 2;
+  const hy = h / 2;
+  const bz = Math.max(1, Math.min(bezel, hx, hy));
+  const r = Math.min(Math.max(radius, bz), hx, hy);
+  const shift = (x) => {
+    if (x >= 1) return 0;
+    const u = 1 - Math.max(x, 1e-4);
+    const height = (1 - u ** 4) ** 0.25; // 가장자리 0 → 안쪽 1
+    const slope = (thickness * u ** 3) / (1 - u ** 4) ** 0.75;
+    const incidence = Math.atan(slope);
+    const refracted = Math.asin(Math.sin(incidence) / ior);
+    return thickness * height * Math.tan(incidence - refracted); // 가장자리 폭 단위
+  };
+  let peak = 0;
+  for (let i = 1; i <= 400; i++) peak = Math.max(peak, shift(i / 400));
+  const url = paintSmooth(w, h, (px, py) => {
+    // 둥근 사각형 SDF: 안쪽 거리 e 와 바깥 방향 법선 (nx, ny)
+    const qx = Math.abs(px) - (hx - r);
+    const qy = Math.abs(py) - (hy - r);
+    let nx;
+    let ny;
+    let e;
+    if (qx > 0 && qy > 0) {
+      const l = Math.hypot(qx, qy);
+      e = r - l;
+      nx = (qx / l) * Math.sign(px);
+      ny = (qy / l) * Math.sign(py);
+    } else if (qx > qy) {
+      e = r - qx;
+      nx = Math.sign(px);
+      ny = 0;
+    } else {
+      e = r - qy;
+      nx = 0;
+      ny = Math.sign(py);
+    }
+    const v = peak ? shift(Math.max(e, 0) / bz) / peak : 0;
+    return [-nx * v, -ny * v, Math.min(1, v * 2) * 2 - 1];
+  }, 6);
+  return { url, maxShift: peak * bz };
+}
+
+/**
  * 색수차용 방사형 맵. 가운데 0 → 가장자리 1 (직선), 방향은 안쪽.
  */
 export function makeRadialMap(w, h) {
@@ -88,8 +150,9 @@ export function makeRimMask(w, h, radius, width) {
   return canvas.toDataURL('image/png');
 }
 
-function paintSmooth(w, h, fn) {
-  const k = Math.min(1, Math.sqrt(SMOOTH_PIXELS / (w * h)));
+function paintSmooth(w, h, fn, maxScale = 1) {
+  // maxScale > 1: 작은 면은 원래보다 촘촘히 그려 가파른 변화(물리 렌즈의 가장자리)가 계단지지 않게 한다
+  const k = Math.min(maxScale, Math.sqrt(SMOOTH_PIXELS / (w * h)));
   const cw = Math.max(2, Math.round(w * k));
   const ch = Math.max(2, Math.round(h * k));
   const canvas = document.createElement('canvas');
