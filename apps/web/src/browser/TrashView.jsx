@@ -146,7 +146,7 @@ export function TrashView({ onToast, focused }) {
           danger
           busy={busy}
           title={confirm.kind === 'empty' ? '휴지통을 비울까요?' : `${ids.length}개 항목을 영구 삭제할까요?`}
-          message="되돌릴 수 없어요. 계속하면 패스키(Touch ID)로 한 번 더 확인해요."
+          message="되돌릴 수 없어요. 계속하면 패스키로 한 번 더 확인해요."
           confirmLabel={confirm.kind === 'empty' ? '휴지통 비우기' : '영구 삭제'}
           onConfirm={runConfirmed}
           onCancel={() => setConfirm(null)}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { startAuthentication, startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { api, ApiError } from '../api.js';
 import { messageFor } from '../messages.js';
@@ -27,7 +27,16 @@ export function PasskeyPage({ onDone }) {
       .catch((e) => setError(e));
   }, []);
 
-  async function run(kind) {
+  // 들어오자마자 패스키 확인을 바로 띄운다(버튼을 누르지 않아도). 등록은 자동으로 하지 않음.
+  // 브라우저가 사용자 동작 없이는 막는 경우(일부 Safari)엔 조용히 실패 → 버튼으로 다시.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (!status?.canLogin || !supported || autoTried.current) return;
+    autoTried.current = true;
+    run('login', { quiet: true });
+  }, [status, supported]);
+
+  async function run(kind, { quiet = false } = {}) {
     setBusy(true);
     setError(null);
     try {
@@ -40,7 +49,8 @@ export function PasskeyPage({ onDone }) {
       }
       onDone();
     } catch (e) {
-      setError(webauthnError(e));
+      const err = webauthnError(e);
+      if (!(quiet && err.code === 'PASSKEY_CANCELLED')) setError(err);
     } finally {
       setBusy(false);
     }
@@ -68,24 +78,17 @@ export function PasskeyPage({ onDone }) {
         {status === null && !error && <div className="login-skeleton" aria-busy="true" />}
 
         {status?.canLogin && (
-          <>
-            <p className="login-lede">
-              {status.locked
-                ? '한동안 사용하지 않아 잠겼어요. 패스키(Touch ID)로 확인하면 보던 곳으로 돌아가요.'
-                : '오너 계정이에요. 등록한 패스키(Touch ID 등)로 한 번 더 확인할게요.'}
-            </p>
-            <div className="login-buttons">
-              <button type="button" className="btn btn-primary btn-large" disabled={busy || !supported} onClick={() => run('login')}>
-                {busy ? '확인 중…' : '패스키로 확인'}
-              </button>
-            </div>
-          </>
+          <div className="login-buttons">
+            <button type="button" className="btn btn-primary btn-large" disabled={busy || !supported} onClick={() => run('login')}>
+              {busy ? '확인 중…' : '패스키로 확인'}
+            </button>
+          </div>
         )}
 
         {status?.canRegister && (
           <>
             <p className="login-lede">
-              처음 로그인했어요. 이 기기에 패스키를 등록하면 다음부터는 Touch ID로 확인해요.
+              처음 로그인했어요. 이 기기에 패스키를 등록하면 다음부터는 패스키로 확인해요.
               <br />
               <strong>최초 등록은 한 번만 가능해요.</strong> 이후 기기 추가는 로그인한 상태에서만 할 수 있어요.
             </p>

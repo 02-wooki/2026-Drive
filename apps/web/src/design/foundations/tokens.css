@@ -1,6 +1,6 @@
 /*
  * Wooki design tokens
- * 앱과 무관한 값만 둔다 (나중에 @wooki/design 패키지로 떼어낼 수 있게).
+ * 앱과 무관한 값만 둔다 (나중에 @02-wooki/glassmorphism-ui 패키지로 떼어낼 수 있게).
  * 라이트가 기본, 다크는 prefers-color-scheme 로 같은 이름을 다시 정의한다.
  */
 

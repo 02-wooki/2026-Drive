@@ -42,7 +42,6 @@ export function LoginPage({ error, onDone }) {
       <section className="login-card glass" aria-labelledby="login-title">
         <AppMark className="login-mark" />
         <h1 id="login-title">Wooki Drive</h1>
-        <p className="login-lede">집에 있는 데스크탑을 Finder처럼 둘러보는 개인 드라이브예요.</p>
 
         {shownError && (
           <p className="notice notice-error" role="alert">
@@ -62,12 +61,6 @@ export function LoginPage({ error, onDone }) {
           ))}
           {providers?.length === 0 && !devLogin && <p className="login-empty">설정된 로그인 방식이 없어요.</p>}
         </div>
-
-        <p className="login-guest-note">
-          포트폴리오를 보러 오셨다면 아무 계정으로나 로그인해 보세요. 데모 폴더를 둘러보고 방명록을 남길 수 있어요.
-          <br />
-          이메일은 받지 않고 닉네임만 사용해요.
-        </p>
 
         {devLogin && (
           <div className="dev-login">
@@ -98,6 +91,12 @@ export function LoginPage({ error, onDone }) {
           </div>
         )}
       </section>
+
+      <p className="login-guest-note">
+        포트폴리오를 보러 오셨다면 아무 계정으로나 로그인해 보세요. 데모 폴더를 둘러보고 방명록을 남길 수 있어요.
+        <br />
+        이메일은 받지 않고 닉네임만 사용해요.
+      </p>
     </main>
   );
 }

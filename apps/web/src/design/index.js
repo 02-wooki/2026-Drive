@@ -1,4 +1,4 @@
-// Wooki design system — 나중에 @wooki/design 패키지로 떼어낼 공개 API.
+// Wooki design system — 나중에 @02-wooki/glassmorphism-ui 패키지로 떼어낼 공개 API.
 // 스타일은 './index.css' 를 따로 불러온다.
 
 // atoms

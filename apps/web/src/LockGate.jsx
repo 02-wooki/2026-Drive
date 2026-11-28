@@ -98,10 +98,10 @@ export function LockGate({ onUnlocked }) {
             </button>
           </>
         ) : state === 'prompting' ? (
-          <span>Touch ID로 확인하는 중…</span>
+          <span>패스키로 확인하는 중…</span>
         ) : (
           <>
-            <span>{error ? messageFor(error) : '잠겨 있어요 · 아무 곳이나 누르면 Touch ID로 확인해요'}</span>
+            <span>{error ? messageFor(error) : '잠겨 있어요 · 아무 곳이나 누르면 패스키로 확인해요'}</span>
             <button type="button" className="lock-pill-btn" onClick={relogin}>
               다른 계정
             </button>
