@@ -112,6 +112,18 @@ class UploadManager {
     this.#pump();
   }
 
+  /** 대기 중·올리는 중인 항목 전부 취소 (각각 '다시 시도'로 되살릴 수 있다) */
+  cancelAll() {
+    let changed = false;
+    for (const it of this.items) {
+      if (it.state !== 'queued' && it.state !== 'uploading') continue;
+      it.ctrl.abort();
+      it.state = 'cancelled';
+      changed = true;
+    }
+    if (changed) this.#emit();
+  }
+
   retry(key) {
     const it = this.items.find((i) => i.key === key);
     if (!it || (it.state !== 'error' && it.state !== 'cancelled')) return;

@@ -32,11 +32,16 @@ export function UploadPanel() {
   const total = items.reduce((s, i) => s + i.size, 0);
   const sent = items.reduce((s, i) => s + (i.state === 'done' ? i.size : i.sent), 0);
   const failed = items.filter((i) => i.state === 'error').length;
+  const cancelled = items.filter((i) => i.state === 'cancelled').length;
   const title = active.length
     ? `${active.length}개 업로드 중 · ${formatSize(sent)} / ${formatSize(total)}`
     : failed
       ? `${failed}개 업로드 실패`
-      : '업로드 완료';
+      : cancelled === items.length
+        ? '업로드 취소됨'
+        : cancelled
+          ? `업로드 완료 · ${cancelled}개 취소됨`
+          : '업로드 완료';
 
   return (
     <section className={`upload-panel glass ${collapsed ? 'is-collapsed' : ''}`} aria-label="업로드">
@@ -44,6 +49,11 @@ export function UploadPanel() {
         <button type="button" className="upload-title" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed}>
           {title}
         </button>
+        {active.length > 0 && (
+          <button type="button" className="btn upload-cancel-all" onClick={() => uploads.cancelAll()} title="대기 중인 파일까지 모두 취소">
+            모두 취소
+          </button>
+        )}
         {!active.length && (
           <button type="button" className="icon-btn" onClick={() => uploads.clearFinished()} title="목록 지우기" aria-label="목록 지우기">
             <Glyph name="close" />
