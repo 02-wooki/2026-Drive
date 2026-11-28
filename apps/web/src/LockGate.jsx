@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { api } from './api.js';
 import { messageFor } from './messages.js';
-import { useLiquidGlass } from './design/index.js';
+import { useGlassRefraction } from './design/index.js';
 
 const REFRESH_OPTIONS_MS = 4 * 60_000;
 
@@ -16,7 +16,7 @@ export function LockGate({ onUnlocked }) {
   const [state, setState] = useState('preparing'); // preparing | ready | prompting | unavailable
   const [error, setError] = useState(null);
   const pillRef = useRef(null);
-  const refraction = useLiquidGlass(pillRef, { active: state });
+  const refraction = useGlassRefraction(pillRef, { active: state });
   const options = useRef(null);
 
   const prepare = useCallback(async () => {
@@ -87,7 +87,7 @@ export function LockGate({ onUnlocked }) {
           onContextMenu={(e) => e.preventDefault()}
         />
       )}
-      <div ref={pillRef} className={`lock-pill glass glass-tinted ${error ? 'has-error' : ''}`} role="status" aria-live="polite">
+      <div ref={pillRef} className={`lock-pill glass glass-clear ${error ? 'has-error' : ''}`} role="status" aria-live="polite">
         {refraction}
         <span aria-hidden="true">🔒</span>
         {state === 'unavailable' ? (

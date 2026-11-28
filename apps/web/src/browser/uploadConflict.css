@@ -1,14 +1,4 @@
-/* 업로드 중복 확인 대화상자 (UploadConflictDialog.jsx). 바탕·제목·버튼은 .dialog·.btn 을 그대로 쓴다. */
-
-.upload-conflict {
-  width: min(420px, 100%);
-}
-.upload-conflict.is-each {
-  width: min(600px, 100%);
-  display: flex;
-  flex-direction: column;
-  max-height: min(640px, calc(100dvh - 2 * var(--space-6)));
-}
+/* 업로드 중복 확인 대화상자 (UploadConflictDialog.jsx). 바탕·제목·버튼·폭은 디자인 시스템 Dialog·Button. */
 
 /* 한꺼번에: 세로로 쌓은 선택지 — 긴 문구("새 파일 N개만 올리기")가 잘리지 않게 */
 .uc-actions {
@@ -116,8 +106,8 @@
 }
 
 .uc-more {
-  align-self: center;
-  margin-bottom: var(--space-3);
+  display: block;
+  margin: 0 auto var(--space-3);
 }
 
 @media (max-width: 520px) {

@@ -1072,12 +1072,17 @@ pre.ql-text {
   font-size: var(--text-sm);
   animation: rise var(--dur-med) var(--ease-spring);
 }
+@keyframes rise {
+  from {
+    transform: translate(-50%, 8px);
+    opacity: 0;
+  }
+}
 .lock-pill.has-error {
   background: var(--danger);
   color: var(--danger-text);
 }
-.lock-pill-btn,
-.toast-action {
+.lock-pill-btn {
   position: relative; /* 유리 림 라이트(::before) 위에 */
   flex: none;
   padding: 3px 10px;
@@ -1090,8 +1095,7 @@ pre.ql-text {
   cursor: pointer;
   transition: background var(--dur-fast);
 }
-.lock-pill-btn:hover,
-.toast-action:hover {
+.lock-pill-btn:hover {
   background: rgba(255, 255, 255, 0.28);
 }
 .lock-pill-btn {
@@ -1173,116 +1177,6 @@ pre.ql-text {
 .row[draggable='true'],
 .icon-cell[draggable='true'] {
   -webkit-user-drag: element;
-}
-
-/* ── 대화상자 ── */
-
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-dialog);
-  display: grid;
-  place-items: center;
-  padding: var(--space-6);
-  background: var(--scrim);
-  animation: fade var(--dur-fast) ease-out;
-}
-.dialog {
-  position: relative;
-  width: min(360px, 100%);
-  padding: var(--space-5) var(--space-5) var(--space-4);
-  border-radius: var(--radius-lg);
-  --glass-shadow: var(--shadow-3);
-  animation: pop var(--dur-med) var(--ease-spring);
-}
-.dialog h2 {
-  margin: 0 0 var(--space-1-5);
-  font-size: var(--text-lg);
-}
-.dialog p {
-  margin: 0 0 var(--space-4);
-  color: var(--text-2);
-  font-size: var(--text-md);
-}
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-/* ── 토스트 ── */
-
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 48px;
-  z-index: var(--z-toast);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  max-width: min(520px, calc(100vw - 32px));
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-  transform: translateX(-50%);
-  border-radius: var(--radius-lg);
-  font-size: var(--text-md);
-  animation: rise var(--dur-med) var(--ease-spring);
-}
-@keyframes rise {
-  from {
-    transform: translate(-50%, 8px);
-    opacity: 0;
-  }
-}
-.toast-error {
-  background: var(--danger);
-  color: var(--danger-text);
-}
-
-/* ── 우클릭 메뉴 ── */
-
-.ctx-menu {
-  position: fixed;
-  z-index: var(--z-menu);
-  min-width: 210px;
-  padding: 5px;
-  border-radius: var(--radius-md);
-}
-.ctx-menu button {
-  position: relative; /* 림 라이트(::before) 위에 */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-6);
-  width: 100%;
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  text-align: left;
-  cursor: default;
-}
-.ctx-menu button:hover:not(:disabled),
-.ctx-menu button:focus-visible {
-  background: var(--accent);
-  color: var(--accent-text);
-  outline: none;
-}
-.ctx-menu button:disabled {
-  color: var(--text-3);
-}
-.ctx-menu button.is-danger:not(:hover):not(:focus-visible) {
-  color: var(--danger);
-}
-.ctx-menu kbd {
-  font: inherit;
-  font-size: var(--text-xs);
-  opacity: 0.6;
-}
-.ctx-sep {
-  height: 1px;
-  margin: var(--space-1) var(--space-1-5);
-  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 /* ── 업로드 패널 ── */
@@ -1536,5 +1430,15 @@ pre.ql-text {
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* 확인 대화상자 뒤 막 — 디자인 시스템 기본(--scrim)보다 옅게: 뒤 화면이 비쳐 유리 깊이감이 보이도록 */
+.dialog-box::backdrop {
+  background: rgba(0, 0, 0, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  .dialog-box::backdrop {
+    background: rgba(0, 0, 0, 0.25);
   }
 }

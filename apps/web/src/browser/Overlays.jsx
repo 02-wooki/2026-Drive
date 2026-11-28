@@ -1,6 +1,7 @@
-// 확인 대화상자, 토스트, 우클릭 메뉴.
-import { useEffect, useRef } from 'react';
-import { useLiquidGlass } from '../design/index.js';
+// 확인 대화상자, 토스트, 우클릭 메뉴 — 디자인 시스템(Dialog·Toast·Menu)에 앱의 기존 props 를 맞춰 주는 얇은 층.
+// 떠 있는(Z축) 요소는 깊이감이 보이도록 맑은 유리(clear).
+import { useEffect, useMemo, useRef } from 'react';
+import { Button, Dialog, Menu, Toast as DsToast } from '../design/index.js';
 
 /**
  * @param {{ title: string, message?: string, confirmLabel: string, danger?: boolean, busy?: boolean,
@@ -9,33 +10,30 @@ import { useLiquidGlass } from '../design/index.js';
 export function ConfirmDialog({ title, message, confirmLabel, danger = false, busy = false, onConfirm, onCancel }) {
   const confirmRef = useRef(null);
   useEffect(() => {
-    // 위험한 작업은 기본 포커스를 '취소'에 둔다 (Finder 와 같음)
+    // 위험한 작업은 기본 포커스를 '취소'(맨 앞 버튼 — showModal 이 첫 버튼에 둔다)에 둔다 (Finder 와 같음)
     if (!danger) confirmRef.current?.focus();
   }, [danger]);
+  const cancel = () => !busy && onCancel();
   return (
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
-      <div
-        className="dialog glass"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title"
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === 'Escape' && !busy) onCancel();
-        }}
-      >
-        <h2 id="dialog-title">{title}</h2>
-        {message && <p>{message}</p>}
-        <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onCancel} disabled={busy} autoFocus={danger}>
+    <Dialog
+      open
+      size="sm"
+      variant="clear"
+      onClose={cancel}
+      dismissible={!busy}
+      title={title}
+      description={message}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={busy}>
             취소
-          </button>
-          <button type="button" ref={confirmRef} className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm} disabled={busy}>
+          </Button>
+          <Button ref={confirmRef} variant={danger ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy}>
             {busy ? '처리 중…' : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      }
+    />
   );
 }
 
@@ -43,96 +41,29 @@ export function ConfirmDialog({ title, message, confirmLabel, danger = false, bu
  * @param {{ toast: { text: string, kind?: 'info' | 'error', action?: { label: string, run: () => void } } | null, onClose: () => void }} props
  */
 export function Toast({ toast, onClose }) {
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(onClose, toast.action ? 7000 : 4000);
-    return () => clearTimeout(t);
-  }, [toast, onClose]);
-  const ref = useRef(null);
-  const refraction = useLiquidGlass(ref, { active: toast });
-  if (!toast) return null;
   return (
-    <div ref={ref} className={`toast glass glass-dark ${toast.kind === 'error' ? 'toast-error' : ''}`} role="status" aria-live="polite">
-      {refraction}
-      <span>{toast.text}</span>
-      {toast.action && (
-        <button
-          type="button"
-          className="toast-action"
-          onClick={() => {
-            toast.action.run();
-            onClose();
-          }}
-        >
-          {toast.action.label}
-        </button>
-      )}
-    </div>
+    <DsToast
+      open={Boolean(toast)}
+      message={toast?.text}
+      tone={toast?.kind === 'error' ? 'danger' : 'neutral'}
+      variant={toast?.kind === 'error' ? 'dark' : 'clear'} // 오류는 빨간 바탕이 보이게 어두운 유리 유지
+      action={toast?.action && { label: toast.action.label, onClick: toast.action.run }}
+      duration={toast?.action ? 7000 : 4000}
+      onClose={onClose}
+    />
   );
 }
 
 /**
- * @param {{ x: number, y: number, items: Array<{ label: string, shortcut?: string, run: () => void, disabled?: boolean, danger?: boolean } | 'sep'>, onClose: () => void }} props
+ * @param {{ x: number, y: number, items: Array<{ label: string, shortcut?: string, run: () => void, disabled?: boolean, danger?: boolean } | 'sep'>,
+ *           subject?: { icon?: import('react').ReactNode, label: string, detail?: string }, onClose: () => void }} props
+ *   subject: 무엇에 대한 메뉴인지 — 휴대폰 폭에서 메뉴 위에 아이콘·이름으로 뜬다
  */
-export function ContextMenu({ x, y, items, onClose }) {
-  const ref = useRef(null);
-  const refraction = useLiquidGlass(ref, { bezel: 10, depth: 8 });
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // 화면 밖으로 나가지 않게
-    const r = el.getBoundingClientRect();
-    if (r.right > innerWidth) el.style.left = `${Math.max(4, innerWidth - r.width - 4)}px`;
-    if (r.bottom > innerHeight) el.style.top = `${Math.max(4, innerHeight - r.height - 4)}px`;
-    el.querySelector('button:not(:disabled)')?.focus();
-    const close = (e) => !el.contains(e.target) && onClose();
-    addEventListener('mousedown', close);
-    addEventListener('blur', onClose);
-    return () => {
-      removeEventListener('mousedown', close);
-      removeEventListener('blur', onClose);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      ref={ref}
-      className="ctx-menu glass"
-      role="menu"
-      style={{ left: x, top: y }}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Escape') onClose();
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          const btns = [...ref.current.querySelectorAll('button:not(:disabled)')];
-          const i = btns.indexOf(document.activeElement);
-          btns[(i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length]?.focus();
-        }
-      }}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {refraction}
-      {items.map((it, i) =>
-        it === 'sep' ? (
-          <div key={`sep${i}`} className="ctx-sep" role="separator" />
-        ) : (
-          <button
-            key={it.label}
-            type="button"
-            role="menuitem"
-            className={it.danger ? 'is-danger' : ''}
-            disabled={it.disabled}
-            onClick={() => {
-              onClose();
-              it.run();
-            }}
-          >
-            <span>{it.label}</span>
-            {it.shortcut && <kbd>{it.shortcut}</kbd>}
-          </button>
-        ),
-      )}
-    </div>
+export function ContextMenu({ x, y, items, subject, onClose }) {
+  const point = useMemo(() => ({ x, y }), [x, y]);
+  const menuItems = useMemo(
+    () => items.map((it) => (it === 'sep' ? 'divider' : { label: it.label, hint: it.shortcut, onSelect: it.run, disabled: it.disabled, danger: it.danger })),
+    [items],
   );
+  return <Menu open variant="clear" point={point} items={menuItems} subject={subject} onClose={onClose} label="메뉴" />;
 }

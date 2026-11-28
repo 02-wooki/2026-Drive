@@ -808,7 +808,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
         if (it.error) items.push({ label: '다시 옮기기', run: () => api.buffer.retry(it.id).then(refreshPending, (er) => notify({ kind: 'error', text: messageFor(er) })) });
         items.push({ label: '보관 취소 (파이에서 지우기)', danger: true, run: () => api.buffer.remove(it.id).then(refreshPending, (er) => notify({ kind: 'error', text: messageFor(er) })) });
       }
-      if (items.length) setMenu({ x: e.clientX, y: e.clientY, items });
+      if (items.length) setMenu({ x: e.clientX, y: e.clientY, items, subject: menuSubject(entry, false) });
       return;
     }
     if (entry && entry.addressable) {
@@ -837,7 +837,17 @@ export function Browser({ user, loc, navigate, onLogout }) {
       items.push({ label: showHidden ? '숨김 파일 가리기' : '숨김 파일 보기', shortcut: `${MOD}⇧.`, run: () => setShowHidden((v) => !v) });
       for (const [v, label] of VIEWS) if (v !== view) items.push({ label: `${label}으로 보기`, run: () => setView(v) });
     }
-    if (items.length) setMenu({ x: e.clientX, y: e.clientY, items });
+    if (items.length) setMenu({ x: e.clientX, y: e.clientY, items, subject: menuSubject(entry, many) });
+  }
+
+  // 메뉴가 무엇에 대한 것인지 (휴대폰 폭에서 메뉴 위에 뜬다). 빈 곳이면 지금 폴더.
+  function menuSubject(entry, many) {
+    if (!entry) return { icon: <EntryIcon entry={{ type: 'dir' }} size={32} />, label: crumbs.at(-1).name, detail: '이 폴더' };
+    return {
+      icon: <EntryIcon entry={entry} size={32} />,
+      label: entry.name,
+      detail: many ? `외 ${selected.size - 1}개 항목` : kindLabel(entry),
+    };
   }
 
   const toggleSort = (key) => setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: 1 }));

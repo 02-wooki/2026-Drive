@@ -112,7 +112,7 @@ export function UploadPanel() {
   const more = (n, text) => n > 0 && <li className="upload-more">{`외 ${n.toLocaleString()}개 ${text}`}</li>;
 
   return (
-    <section className={`upload-panel glass ${collapsed ? 'is-collapsed' : ''}`} aria-label="업로드">
+    <section className={`upload-panel glass glass-clear ${collapsed ? 'is-collapsed' : ''}`} aria-label="업로드">
       <header className="upload-head">
         <button type="button" className="upload-title" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed}>
           {title}
