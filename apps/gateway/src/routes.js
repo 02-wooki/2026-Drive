@@ -14,6 +14,7 @@
 //   POST /api/files/trash/{delete,empty}       ← 패스키 재인증(1회용) 필요
 //   POST /api/files/uploads/check { paths[] }
 //   POST /api/files/uploads  GET|PUT|DELETE /api/files/uploads/:id  POST /api/files/uploads/:id/complete
+//   POST /api/files/uploads/batch?id=&manifestBytes=&manifestSha256=  (작은 파일 묶음, 본문 그대로 agent 로)
 //
 //   ── owner 전용: 파이 임시 보관함 (데스크탑이 꺼져 있을 때, D3) ──
 //   GET  /api/buffer                            { items[], used, max, free }
@@ -250,6 +251,21 @@ export function apiRouter({
     const sha = req.headers['x-chunk-sha256'];
     if (typeof sha === 'string') headers['X-Chunk-Sha256'] = sha;
     const { status, data } = await agent.pipeUpload(req, `/v1/uploads/${id}?offset=${offset}`, headers);
+    res.status(status).json(data);
+  });
+  // 묶음 업로드: 작은 파일 여러 개를 요청 하나로. 본문은 파이에 쌓지 않고 agent 로 흘려보낸다.
+  // 매니페스트 해시를 서명된 쿼리에 실어 agent 가 본문 전체를 검증할 수 있게 한다.
+  files.post('/uploads/batch', uploadLimiter.middleware('UPLOAD_RATE_LIMITED'), async (req, res) => {
+    const { id, manifestBytes, manifestSha256 } = req.query;
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) throw new HttpError(400, 'BAD_BATCH_ID');
+    if (typeof manifestBytes !== 'string' || !/^[1-9][0-9]{0,8}$/.test(manifestBytes)) throw new HttpError(400, 'BAD_MANIFEST');
+    if (typeof manifestSha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(manifestSha256)) throw new HttpError(400, 'BAD_MANIFEST');
+    const length = Number(req.headers['content-length']);
+    if (!Number.isSafeInteger(length)) throw new HttpError(411, 'LENGTH_REQUIRED');
+    if (length > MAX_CHUNK_REQUEST_BYTES) throw new HttpError(413, 'CHUNK_TOO_LARGE');
+    const q = new URLSearchParams({ id, manifestBytes, manifestSha256: manifestSha256.toLowerCase() });
+    const headers = { 'Content-Length': String(length), 'Content-Type': 'application/octet-stream' };
+    const { status, data } = await agent.pipeUpload(req, `/v1/uploads/batch?${q}`, headers, 'POST');
     res.status(status).json(data);
   });
   files.post('/uploads/:id/complete', json, async (req, res, next) => fwd('POST', () => `/v1/uploads/${uploadId(req)}/complete`)(req, res, next));

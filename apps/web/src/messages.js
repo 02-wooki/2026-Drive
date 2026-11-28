@@ -50,6 +50,7 @@ const MESSAGES = {
   OFFLINE_READ_ONLY: '데스크탑이 꺼져 있어 지금은 열 수 없어요. 켜진 뒤에 다시 시도해 주세요.',
   UPLOAD_RATE_LIMITED: '업로드 요청이 너무 많아요. 잠시 후 다시 시도해 주세요.',
   CHUNK_CORRUPT: '전송 중 데이터가 손상되었어요. 다시 시도해 주세요.',
+  FILE_UNREADABLE: '원본 파일을 읽을 수 없어요. 옮겨지거나 지워졌는지 확인해 주세요.',
   CHUNK_TOO_LARGE: '업로드 조각이 너무 커요.',
   BAD_SIZE: '파일 크기를 확인할 수 없어요.',
   AGENT_TIMEOUT: '데스크탑 응답이 너무 늦어요.',

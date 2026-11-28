@@ -137,9 +137,10 @@ export class AgentClient {
    * @param {import('express').Request} req  본문 스트림
    * @param {string} pathWithQuery
    * @param {Record<string, string>} headers  Content-Length, X-Chunk-Sha256
+   * @param {'PUT' | 'POST'} [method]  POST = 묶음 업로드
    */
-  async pipeUpload(req, pathWithQuery, headers) {
-    return this.#readJson(await this.request('PUT', pathWithQuery, { stream: req, headers }));
+  async pipeUpload(req, pathWithQuery, headers, method = 'PUT') {
+    return this.#readJson(await this.request(method, pathWithQuery, { stream: req, headers }));
   }
 
   /**

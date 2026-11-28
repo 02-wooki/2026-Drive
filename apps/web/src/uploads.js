@@ -5,10 +5,19 @@
 //  - 청크마다 SHA-256(crypto.subtle) 을 보내 서버가 손상을 감지
 //  - 네트워크 오류·5xx 는 지수 백오프로 재시도, 409 OFFSET_MISMATCH 는 서버의 received 부터 이어서
 //  - 업로드 id 는 localStorage 에 (대상 경로 + 크기 + 수정시각) 키로 저장 → 탭을 닫았다 같은 파일을 다시 올리면 이어서
+//
+// 작은 파일(BATCH_FILE_MAX 이하, 데스크탑 대상)은 여러 개를 묶어 요청 하나로 보낸다 (POST /uploads/batch).
+//  - 파일마다 요청 3번이면 작은 파일이 많을 때 왕복 시간이 대부분이라서. 이어올리기는 없다(끊기면 묶음째 다시).
+//  - 매니페스트 해시 + 파일별 해시로 서버가 검증하고, 파일마다 임시 파일 → 제자리로 옮김. 결과도 파일마다.
+//  - 같은 묶음 id 로 재시도하면 서버가 처음 결과를 돌려준다 → 응답만 잃어버린 경우에도 두 번 저장되지 않는다.
 
 import { api, ApiError, reportAuthLost } from './api.js';
 
-const CONCURRENCY = 2;
+const CONCURRENCY = 2; // 동시에 진행하는 작업 수 (큰 파일 하나 또는 묶음 하나가 작업 하나)
+const MiB = 1024 * 1024;
+const BATCH_FILE_MAX = 4 * MiB; // 이 크기 이하만 묶는다
+const BATCH_MAX_BYTES = 30 * MiB; // 요청 상한(32MB + 1MB) 아래, 매니페스트 여유
+const BATCH_MAX_FILES = 200;
 const MAX_RETRIES = 6;
 const RESUME_KEY = 'wd.uploads';
 
@@ -38,9 +47,14 @@ const resumeKey = (dest, file, target, onConflict) =>
   `${target === 'buffer' ? 'buffer:' : ''}${onConflict ? `${onConflict}:` : ''}${dest}|${file.size}|${file.lastModified}`;
 
 async function sha256Hex(blob) {
-  const buf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return bytesSha256Hex(await blob.arrayBuffer());
+}
+async function bytesSha256Hex(bytes) {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+const randomId = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(18)))).replace(/\+/g, '-').replace(/\//g, '_');
+const batchable = (it) => it.target === 'desktop' && it.size <= BATCH_FILE_MAX;
 
 const sleep = (ms, signal) =>
   new Promise((resolve, reject) => {
@@ -61,6 +75,7 @@ class UploadManager {
     this.listeners = new Set();
     this.completeListeners = new Set();
     this.seq = 0;
+    this.running = 0; // 진행 중인 작업 수
   }
 
   subscribe(fn) {
@@ -146,32 +161,150 @@ class UploadManager {
   }
 
   #pump() {
-    const running = this.items.filter((i) => i.state === 'uploading').length;
-    const next = this.items.filter((i) => i.state === 'queued').slice(0, Math.max(0, CONCURRENCY - running));
-    for (const it of next) {
-      it.state = 'uploading';
-      it.startedAt = Date.now();
+    while (this.running < CONCURRENCY) {
+      const first = this.items.find((i) => i.state === 'queued');
+      if (!first) return;
+      const group = batchable(first) ? this.#takeBatch() : [first];
+      for (const it of group) {
+        it.state = 'uploading';
+        it.startedAt = Date.now();
+      }
+      this.running++;
       this.#emit();
-      this.#run(it)
-        .then(({ path: finalPath, replaced }) => {
-          it.state = 'done';
-          it.sent = it.size;
-          it.finalPath = finalPath;
-          it.replaced = Boolean(replaced);
-          for (const fn of this.completeListeners) fn(finalPath, it.target);
-        })
-        .catch((err) => {
-          if (it.ctrl.signal.aborted) {
-            it.state = 'cancelled';
-          } else {
-            it.state = 'error';
-            it.error = err?.code ?? 'UPLOAD_FAILED';
-          }
-        })
-        .finally(() => {
-          this.#emit();
-          this.#pump();
+      (batchable(first) ? this.#runBatch(group) : this.#runOne(first)).finally(() => {
+        this.running--;
+        this.#emit();
+        this.#pump();
+      });
+    }
+  }
+
+  /** 대기 중인 작은 파일을 앞에서부터 상한까지 */
+  #takeBatch() {
+    const group = [];
+    let bytes = 0;
+    for (const it of this.items) {
+      if (it.state !== 'queued' || !batchable(it)) continue;
+      if (group.length && (group.length >= BATCH_MAX_FILES || bytes + it.size > BATCH_MAX_BYTES)) break;
+      group.push(it);
+      bytes += it.size;
+    }
+    return group;
+  }
+
+  #done(it, finalPath, replaced) {
+    it.state = 'done';
+    it.sent = it.size;
+    it.finalPath = finalPath;
+    it.replaced = Boolean(replaced);
+    for (const fn of this.completeListeners) fn(finalPath, it.target);
+  }
+
+  async #runOne(it) {
+    try {
+      const { path: finalPath, replaced } = await this.#run(it);
+      this.#done(it, finalPath, replaced);
+    } catch (err) {
+      if (it.ctrl.signal.aborted) {
+        it.state = 'cancelled';
+      } else {
+        it.state = 'error';
+        it.error = err?.code ?? 'UPLOAD_FAILED';
+      }
+    }
+  }
+
+  /** 작은 파일 묶음. 하나를 취소하면 묶음 요청을 끊고 나머지는 다시 대기열로. */
+  async #runBatch(group) {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    for (const it of group) it.ctrl.signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      const sending = [];
+      const parts = [];
+      for (const it of group) {
+        if (it.ctrl.signal.aborted) continue;
+        try {
+          parts.push(await it.file.arrayBuffer());
+          sending.push(it);
+        } catch {
+          it.state = 'error'; // 올리는 사이 원본이 지워졌거나 옮겨짐
+          it.error = 'FILE_UNREADABLE';
+        }
+      }
+      if (!sending.length) return;
+      const files = [];
+      for (let i = 0; i < sending.length; i++) {
+        const it = sending[i];
+        files.push({
+          path: it.dest,
+          size: parts[i].byteLength,
+          sha256: await bytesSha256Hex(parts[i]),
+          ...(it.file.lastModified ? { mtimeMs: it.file.lastModified } : {}),
+          ...(it.onConflict ? { onConflict: it.onConflict } : {}),
         });
+      }
+      const manifest = new TextEncoder().encode(JSON.stringify({ files }));
+      const q = new URLSearchParams({ id: randomId(), manifestBytes: String(manifest.byteLength), manifestSha256: await bytesSha256Hex(manifest) });
+      const body = new Blob([manifest, ...parts]);
+      const t0 = performance.now();
+      const results = await this.#sendBatch(`${api.uploads.base('desktop')}/batch?${q}`, body, ctrl.signal);
+      const secs = (performance.now() - t0) / 1000;
+      sending.forEach((it, i) => {
+        const r = results[i];
+        if (it.state !== 'uploading') return;
+        if (secs > 0) it.rate = body.size / secs;
+        if (!r) {
+          it.state = 'error';
+          it.error = 'AGENT_BAD_RESPONSE';
+        } else if (r.error) {
+          it.state = 'error';
+          it.error = r.error;
+        } else {
+          this.#done(it, r.finalPath, r.replaced);
+        }
+      });
+    } catch (err) {
+      for (const it of group) {
+        if (it.state !== 'uploading') continue; // 취소된 것(cancel 이 이미 표시)
+        if (ctrl.signal.aborted) {
+          it.state = 'queued'; // 같은 묶음의 다른 파일이 취소됨 → 다시 대기
+        } else {
+          it.state = 'error';
+          it.error = err?.code ?? 'UPLOAD_FAILED';
+        }
+      }
+    } finally {
+      for (const it of group) it.ctrl.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  async #sendBatch(url, body, signal) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body,
+          signal,
+        }).catch((e) => {
+          if (e?.name === 'AbortError') throw e;
+          throw new ApiError(0, 'NETWORK');
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          reportAuthLost(data.error);
+          throw new ApiError(res.status, data.error ?? `HTTP_${res.status}`);
+        }
+        if (!Array.isArray(data.results)) throw new ApiError(502, 'AGENT_BAD_RESPONSE');
+        return data.results;
+      } catch (err) {
+        if (err?.name === 'AbortError') throw err;
+        // 같은 id 로 재시도 → 이미 처리됐으면 서버가 그 결과를 준다. 처리 중이면 잠시 뒤 다시.
+        if (!(retryable(err) || err?.code === 'BATCH_IN_PROGRESS') || attempt >= MAX_RETRIES) throw err;
+        await sleep(Math.min(30_000, 1000 * 2 ** attempt), signal);
+      }
     }
   }
 

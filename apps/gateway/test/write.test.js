@@ -181,3 +181,31 @@ test('chunked upload streams through the gateway', async () => {
   const c2 = await api('POST', '/api/files/uploads', { path: '/docs/cancel.bin', size: 5 });
   assert.deepEqual((await api('DELETE', `/api/files/uploads/${c2.body.id}`)).body, { ok: true });
 });
+
+test('batch upload streams through the gateway (owner only, signed manifest hash)', async () => {
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const datas = [Buffer.from('one'), Buffer.from('two!')];
+  const manifest = Buffer.from(
+    JSON.stringify({ files: [{ path: '/docs/b1.txt', size: 3, sha256: sha(datas[0]) }, { path: '/docs/sub/b2.txt', size: 4, sha256: sha(datas[1]), onConflict: 'fail' }] }),
+  );
+  const raw = Buffer.concat([manifest, ...datas]);
+  const url = (q = {}) =>
+    `/api/files/uploads/batch?${new URLSearchParams({ id: 'gw-batch-0123456789', manifestBytes: String(manifest.length), manifestSha256: sha(manifest), ...q })}`;
+  const headers = { 'Content-Type': 'application/octet-stream' };
+
+  assert.equal((await api('POST', url(), undefined, { raw, headers, cookie: guestCookie })).status, 403);
+  assert.equal((await api('POST', url(), undefined, { raw, headers, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await api('POST', url({ id: '../x' }), undefined, { raw, headers })).body.error, 'BAD_BATCH_ID');
+  assert.equal((await api('POST', url({ manifestSha256: 'zz' }), undefined, { raw, headers })).body.error, 'BAD_MANIFEST');
+  // 매니페스트 해시가 쿼리(서명됨)와 다르면 agent 가 거부 → 본문을 바꿔치기해도 저장되지 않는다
+  assert.equal((await api('POST', url({ manifestSha256: sha('other') }), undefined, { raw, headers })).body.error, 'CHUNK_CORRUPT');
+  assert.ok(!fs.existsSync(path.join(drive, 'docs', 'b1.txt')));
+
+  const r = await api('POST', url(), undefined, { raw, headers });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.results, [
+    { path: '/docs/b1.txt', finalPath: '/docs/b1.txt' },
+    { path: '/docs/sub/b2.txt', finalPath: '/docs/sub/b2.txt' },
+  ]);
+  assert.equal(fs.readFileSync(path.join(drive, 'docs', 'sub', 'b2.txt'), 'utf8'), 'two!');
+});

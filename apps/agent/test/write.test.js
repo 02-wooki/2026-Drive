@@ -276,3 +276,85 @@ test('upload conflicts: check, replace (old file to trash), fail, folder cannot 
   assert.deepEqual((await upload('/up/same.txt', 'again')).body, { path: '/up/same (1).txt' });
   assert.equal((await call('POST', '/v1/uploads', { path: '/up/y', size: 1, onConflict: 'overwrite' })).body.error, 'BAD_CONFLICT_MODE');
 });
+
+test('batch upload: many small files in one request, per-file results, idempotent retry', async () => {
+  fs.mkdirSync(path.join(root, 'bt'));
+  fs.writeFileSync(path.join(root, 'bt', 'keep.txt'), 'old');
+  fs.writeFileSync(path.join(root, 'bt', 'swap.txt'), 'old');
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  let n = 0;
+  const batch = (files, { id = `batch-id-${++n}-xxxxxxxxxx`, tamper } = {}) => {
+    const datas = files.map((f) => Buffer.from(f.content));
+    const manifest = Buffer.from(
+      JSON.stringify({
+        files: files.map((f, i) => ({ path: f.path, size: datas[i].length, sha256: f.sha256 ?? sha(datas[i]), ...f.extra })),
+      }),
+    );
+    let body = Buffer.concat([manifest, ...datas]);
+    if (tamper) body = tamper(body, manifest.length);
+    const q = new URLSearchParams({ id, manifestBytes: String(manifest.length), manifestSha256: sha(manifest) });
+    return call('POST', `/v1/uploads/batch?${q}`, undefined, { raw: body });
+  };
+  const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
+
+  const t = Date.parse('2024-05-01T12:00:00Z');
+  const r = await batch([
+    { path: '/bt/a.txt', content: 'A', extra: { mtimeMs: t, onConflict: 'fail' } },
+    { path: '/bt/new/deep/b.txt', content: 'BB' }, // 없는 중간 폴더도 만든다
+    { path: '/bt/' + '한글.txt'.normalize('NFD'), content: 'nfd' }, // NFC 로 저장 (D12)
+    { path: '/bt/empty.txt', content: '' },
+    { path: '/bt/bad.txt', content: 'good', sha256: sha('evil') }, // 이 파일만 손상
+    { path: '/bt/keep.txt', content: 'new', extra: { onConflict: 'fail' } },
+    { path: '/bt/swap.txt', content: 'new', extra: { onConflict: 'replace' } },
+    { path: '/.wooki/x.txt', content: 'x' },
+  ]);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.results, [
+    { path: '/bt/a.txt', finalPath: '/bt/a.txt' },
+    { path: '/bt/new/deep/b.txt', finalPath: '/bt/new/deep/b.txt' },
+    { path: '/bt/' + '한글.txt'.normalize('NFD'), finalPath: '/bt/' + '한글.txt'.normalize('NFC') },
+    { path: '/bt/empty.txt', finalPath: '/bt/empty.txt' },
+    { path: '/bt/bad.txt', error: 'CHUNK_CORRUPT' },
+    { path: '/bt/keep.txt', error: 'ALREADY_EXISTS' },
+    { path: '/bt/swap.txt', finalPath: '/bt/swap.txt', replaced: true },
+    { path: '/.wooki/x.txt', error: 'PATH_RESERVED' },
+  ]);
+  assert.equal(read('bt', 'a.txt'), 'A');
+  assert.equal(fs.statSync(path.join(root, 'bt', 'a.txt')).mtimeMs, t);
+  assert.equal(read('bt', 'new', 'deep', 'b.txt'), 'BB');
+  assert.equal(read('bt', '한글.txt'.normalize('NFC')), 'nfd');
+  assert.equal(read('bt', 'empty.txt'), '');
+  assert.ok(!exists('bt', 'bad.txt'));
+  assert.equal(read('bt', 'keep.txt'), 'old');
+  assert.equal(read('bt', 'swap.txt'), 'new');
+  assert.ok((await call('GET', '/v1/trash')).body.items.some((i) => i.originalPath === '/bt/swap.txt'), 'replaced file is in the trash');
+  assert.ok(!exists('.wooki', 'x.txt'));
+  // 임시 파일이 남지 않는다
+  assert.deepEqual(fs.readdirSync(path.join(root, '.wooki', 'staging')).filter((f) => f.endsWith('.part') && !fs.existsSync(path.join(root, '.wooki', 'staging', f.replace(/\.part$/, '.json')))), []);
+
+  // 같은 id 로 다시 보내면(응답을 잃어버린 재시도) 처음 결과 그대로, 두 번 저장하지 않는다 — 기본(rename)이라도 "(1)" 이 안 생김
+  const id = 'retry-id-0123456789';
+  const first = await batch([{ path: '/bt/once.txt', content: '1' }], { id });
+  assert.deepEqual(first.body.results, [{ path: '/bt/once.txt', finalPath: '/bt/once.txt' }]);
+  const again = await batch([{ path: '/bt/once.txt', content: '1' }], { id });
+  assert.deepEqual(again.body, first.body);
+  assert.ok(!exists('bt', 'once (1).txt'));
+  // 다른 id 면 새 묶음 → 기본은 이름 바꿔 저장
+  assert.equal((await batch([{ path: '/bt/once.txt', content: '1' }])).body.results[0].finalPath, '/bt/once (1).txt');
+
+  // 요청 전체가 이상하면 아무것도 쓰지 않는다
+  const flip = (body, at) => {
+    const b = Buffer.from(body);
+    b[at] ^= 1;
+    return b;
+  };
+  const m1 = await batch([{ path: '/bt/m1.txt', content: 'm' }], { tamper: (b) => flip(b, 2) }); // 매니페스트 손상
+  assert.deepEqual([m1.status, m1.body.error], [422, 'CHUNK_CORRUPT']);
+  const m2 = await batch([{ path: '/bt/m2.txt', content: 'mm' }], { tamper: (b) => b.subarray(0, b.length - 1) }); // 잘림
+  assert.deepEqual([m2.status, m2.body.error], [400, 'BATCH_LENGTH_MISMATCH']);
+  const m3 = await batch([{ path: '/bt/m3.txt', content: 'm' }], { id: 'short' });
+  assert.deepEqual([m3.status, m3.body.error], [400, 'BAD_BATCH_ID']);
+  const m4 = await batch([{ path: '/bt/m4.txt', content: 'm', extra: { onConflict: 'nope' } }]);
+  assert.deepEqual([m4.status, m4.body.error], [400, 'BAD_CONFLICT_MODE']);
+  for (const f of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt']) assert.ok(!exists('bt', f), f);
+});
