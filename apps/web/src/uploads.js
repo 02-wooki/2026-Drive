@@ -33,7 +33,9 @@ function saveResume(map) {
     localStorage.setItem(RESUME_KEY, JSON.stringify(map));
   } catch {}
 }
-const resumeKey = (dest, file, target) => `${target === 'buffer' ? 'buffer:' : ''}${dest}|${file.size}|${file.lastModified}`;
+// 충돌 처리 방식은 업로드를 만들 때 정해지므로 키에 넣는다 (같은 파일을 다른 방식으로 다시 올리면 새 업로드)
+const resumeKey = (dest, file, target, onConflict) =>
+  `${target === 'buffer' ? 'buffer:' : ''}${onConflict ? `${onConflict}:` : ''}${dest}|${file.size}|${file.lastModified}`;
 
 async function sha256Hex(blob) {
   const buf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
@@ -78,11 +80,12 @@ class UploadManager {
   }
 
   /**
-   * @param {Array<{ file: File, dest: string }>} files  dest = 최종 가상 경로 (폴더 업로드면 하위 경로 포함)
+   * @param {Array<{ file: File, dest: string, onConflict?: 'replace' | 'fail' }>} files
+   *   dest = 최종 가상 경로 (폴더 업로드면 하위 경로 포함). onConflict 는 데스크탑 업로드에만 (planUploads 참고)
    * @param {UploadTarget} [target]
    */
   add(files, target = 'desktop') {
-    for (const { file, dest } of files) {
+    for (const { file, dest, onConflict } of files) {
       this.items.push({
         key: `u${++this.seq}`,
         name: file.name.normalize('NFC'),
@@ -91,6 +94,7 @@ class UploadManager {
         sent: 0,
         state: 'queued',
         target,
+        onConflict: target === 'desktop' ? onConflict : undefined,
         file,
         ctrl: new AbortController(),
       });
@@ -137,10 +141,11 @@ class UploadManager {
       it.startedAt = Date.now();
       this.#emit();
       this.#run(it)
-        .then((finalPath) => {
+        .then(({ path: finalPath, replaced }) => {
           it.state = 'done';
           it.sent = it.size;
           it.finalPath = finalPath;
+          it.replaced = Boolean(replaced);
           for (const fn of this.completeListeners) fn(finalPath, it.target);
         })
         .catch((err) => {
@@ -159,10 +164,10 @@ class UploadManager {
   }
 
   async #run(it) {
-    const { file, dest, ctrl, target } = it;
+    const { file, dest, ctrl, target, onConflict } = it;
     const signal = ctrl.signal;
     const resume = loadResume();
-    const rkey = resumeKey(dest, file, target);
+    const rkey = resumeKey(dest, file, target, onConflict);
     const base = api.uploads.base(target);
 
     // 1) 이어올리기 가능한지 확인, 아니면 새로 만들기
@@ -178,7 +183,7 @@ class UploadManager {
       }
     }
     if (!id) {
-      const c = await api.uploads.create(dest, file.size, file.lastModified || undefined, target);
+      const c = await api.uploads.create(dest, file.size, file.lastModified || undefined, target, onConflict);
       id = c.id;
       chunkSize = c.chunkSize;
       received = c.received;
@@ -247,11 +252,28 @@ class UploadManager {
     const r = loadResume();
     delete r[rkey];
     saveResume(r);
-    return done.path;
+    return done;
   }
 }
 
 export const uploads = new UploadManager();
+
+const CHECK_BATCH = 500; // gateway JSON 본문 256KB 안쪽
+
+/**
+ * 올릴 위치에 이미 있는 항목 찾기 (데스크탑만). dest 는 NFC 로 맞춰 서버가 저장할 이름과 비교한다.
+ * @param {Array<{ file: File, dest: string }>} list
+ * @returns {Promise<Map<string, { type: 'file' | 'dir' | 'other', size: number | null, mtimeMs: number | null }>>} NFC dest → 기존 항목
+ */
+export async function findConflicts(list) {
+  const dests = [...new Set(list.map((x) => x.dest.normalize('NFC')))];
+  const found = new Map();
+  for (let i = 0; i < dests.length; i += CHECK_BATCH) {
+    const { conflicts } = await api.uploads.check(dests.slice(i, i + CHECK_BATCH));
+    for (const { path, ...rest } of conflicts) found.set(path, rest);
+  }
+  return found;
+}
 
 /**
  * 드롭된 항목(파일·폴더)을 { file, dest } 목록으로 펼친다. 폴더는 하위까지 재귀.

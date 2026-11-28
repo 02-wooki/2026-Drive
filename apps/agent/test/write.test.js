@@ -205,3 +205,74 @@ test('chunked upload with resume, hash check and folder creation', async () => {
   assert.equal((await call('POST', '/v1/uploads', { path: '/x', size: 1e18 })).body.error, 'BAD_SIZE'); // 안전한 정수 아님
   assert.equal((await call('GET', '/v1/uploads/..%2F..%2Fx')).status, 404);
 });
+
+test('upload conflicts: check, replace (old file to trash), fail, folder cannot be replaced', async () => {
+  fs.mkdirSync(path.join(root, 'up'));
+  fs.writeFileSync(path.join(root, 'up', 'same.txt'), 'old');
+  fs.mkdirSync(path.join(root, 'up', 'dir.txt'));
+  const nfd = '/up/' + '한글.txt'.normalize('NFD');
+  fs.writeFileSync(path.join(root, 'up', '한글.txt'.normalize('NFC')), 'nfc');
+
+  // check: 있는 것만, 경로가 잘못된 것은 조용히 건너뜀. NFD 로 물어도 저장될 NFC 이름으로 비교
+  const chk = await call('POST', '/v1/uploads/check', { paths: ['/up/same.txt', '/up/dir.txt', '/up/new.txt', '/up/none/x.txt', nfd, '/.wooki/x', '/up/../a'] });
+  assert.equal(chk.status, 200);
+  assert.deepEqual(
+    chk.body.conflicts.map((c) => [c.path, c.type, c.size]),
+    [
+      ['/up/same.txt', 'file', 3],
+      ['/up/dir.txt', 'dir', null],
+      [nfd, 'file', 3],
+    ],
+  );
+  assert.equal((await call('POST', '/v1/uploads/check', { paths: [] })).body.error, 'BAD_LIST');
+
+  const upload = async (p, content, onConflict) => {
+    const c = await call('POST', '/v1/uploads', { path: p, size: content.length, ...(onConflict ? { onConflict } : {}) });
+    if (c.status !== 201) return c;
+    if (content.length) await call('PUT', `/v1/uploads/${c.body.id}?offset=0`, undefined, { raw: Buffer.from(content) });
+    return { ...(await call('POST', `/v1/uploads/${c.body.id}/complete`, {})), id: c.body.id };
+  };
+
+  // replace: 같은 이름으로 저장되고 기존 파일은 휴지통에 (되돌릴 수 있음)
+  const r = await upload('/up/same.txt', 'new!', 'replace');
+  assert.deepEqual(r.body, { path: '/up/same.txt', replaced: true });
+  assert.equal(fs.readFileSync(path.join(root, 'up', 'same.txt'), 'utf8'), 'new!');
+  assert.ok(!exists('up', 'same (1).txt'));
+  const trashed = (await call('GET', '/v1/trash')).body.items.find((i) => i.originalPath === '/up/same.txt');
+  assert.ok(trashed, 'old file is in the trash');
+  assert.equal(fs.readFileSync(path.join(root, '.wooki', 'trash', trashed.id, 'data', 'same.txt'), 'utf8'), 'old');
+
+  // replace 인데 기존 항목이 없으면 그냥 저장
+  assert.deepEqual((await upload('/up/fresh.txt', 'x', 'replace')).body, { path: '/up/fresh.txt' });
+
+  // fail: 있으면 시작부터 409(청크를 보내기 전에 거른다), 없으면 저장
+  const f = await call('POST', '/v1/uploads', { path: '/up/same.txt', size: 3, onConflict: 'fail' });
+  assert.equal(f.status, 409);
+  assert.equal(f.body.error, 'ALREADY_EXISTS');
+  assert.deepEqual((await upload('/up/new.txt', 'n', 'fail')).body, { path: '/up/new.txt' });
+
+  // 폴더는 대체 불가 (역시 시작부터)
+  const d = await call('POST', '/v1/uploads', { path: '/up/dir.txt', size: 1, onConflict: 'replace' });
+  assert.equal(d.status, 409);
+  assert.equal(d.body.error, 'CANNOT_REPLACE_FOLDER');
+  assert.ok(fs.statSync(path.join(root, 'up', 'dir.txt')).isDirectory());
+
+  // 받는 사이에 생긴 충돌: fail 은 complete 에서 409 + 임시 파일 정리, 덮어쓰지 않음
+  const late = await call('POST', '/v1/uploads', { path: '/up/late.txt', size: 1, onConflict: 'fail' });
+  await call('PUT', `/v1/uploads/${late.body.id}?offset=0`, undefined, { raw: Buffer.from('L') });
+  fs.writeFileSync(path.join(root, 'up', 'late.txt'), 'someone else');
+  const lateDone = await call('POST', `/v1/uploads/${late.body.id}/complete`, {});
+  assert.equal(lateDone.body.error, 'ALREADY_EXISTS');
+  assert.equal(fs.readFileSync(path.join(root, 'up', 'late.txt'), 'utf8'), 'someone else');
+  assert.equal((await call('GET', `/v1/uploads/${late.body.id}`)).status, 404);
+
+  // 받는 사이에 폴더가 생기면 replace 도 거부
+  const late2 = await call('POST', '/v1/uploads', { path: '/up/late2', size: 1, onConflict: 'replace' });
+  await call('PUT', `/v1/uploads/${late2.body.id}?offset=0`, undefined, { raw: Buffer.from('L') });
+  fs.mkdirSync(path.join(root, 'up', 'late2'));
+  assert.equal((await call('POST', `/v1/uploads/${late2.body.id}/complete`, {})).body.error, 'CANNOT_REPLACE_FOLDER');
+
+  // 기본(onConflict 없음)은 그대로 "(1)" — 버퍼 동기화(D21) 호환
+  assert.deepEqual((await upload('/up/same.txt', 'again')).body, { path: '/up/same (1).txt' });
+  assert.equal((await call('POST', '/v1/uploads', { path: '/up/y', size: 1, onConflict: 'overwrite' })).body.error, 'BAD_CONFLICT_MODE');
+});

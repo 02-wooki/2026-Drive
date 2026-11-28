@@ -71,9 +71,11 @@ export function UploadPanel() {
                 {it.state === 'done' &&
                   (it.target === 'buffer'
                     ? '파이에 보관됨 · 데스크탑이 켜지면 옮겨져요'
-                    : it.finalPath && it.finalPath !== it.dest
-                      ? `완료 · ${it.finalPath.split('/').pop()}(으)로 저장`
-                      : '완료')}
+                    : it.replaced
+                      ? '완료 · 기존 파일은 휴지통으로'
+                      : it.finalPath && it.finalPath !== it.dest
+                        ? `완료 · ${it.finalPath.split('/').pop()}(으)로 저장`
+                        : '완료')}
                 {it.state === 'cancelled' && '취소됨'}
                 {it.state === 'error' && messageFor(it.error)}
               </div>

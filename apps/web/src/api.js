@@ -77,7 +77,10 @@ export const api = {
   /** 업로드. target 'desktop' = 데스크탑으로 바로, 'buffer' = 파이 임시 보관함 (D3). 프로토콜은 같다. */
   uploads: {
     base: (target = 'desktop') => (target === 'buffer' ? '/api/buffer/uploads' : '/api/files/uploads'),
-    create: (path, size, mtimeMs, target) => request('POST', api.uploads.base(target), { path, size, mtimeMs }),
+    /** onConflict(데스크탑만): 'replace' 기존 파일을 휴지통으로 보내고 대체 · 'fail' 있으면 409 · 없으면 서버 기본("이름 (1)") */
+    create: (path, size, mtimeMs, target, onConflict) => request('POST', api.uploads.base(target), { path, size, mtimeMs, onConflict }),
+    /** 이미 있는 항목 → { conflicts: [{ path, type, size, mtimeMs }] }. 한 번에 최대 1000개 */
+    check: (paths) => request('POST', '/api/files/uploads/check', { paths }),
     status: (id, target) => request('GET', `${api.uploads.base(target)}/${encodeURIComponent(id)}`),
     complete: (id, target) => request('POST', `${api.uploads.base(target)}/${encodeURIComponent(id)}/complete`, {}),
     abort: (id, target) => request('DELETE', `${api.uploads.base(target)}/${encodeURIComponent(id)}`),

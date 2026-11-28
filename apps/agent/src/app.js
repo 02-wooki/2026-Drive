@@ -18,7 +18,9 @@
 // POST /v1/trash/delete  { ids[] }                            → { results[] }   (영구 삭제 — gateway 가 패스키 재인증 후에만 호출)
 // POST /v1/trash/empty                                        → { deleted }
 // ── 업로드 (청크) ──
-// POST   /v1/uploads              { path, size, mtimeMs? }    → { id, size, received, chunkSize }
+// POST   /v1/uploads/check        { paths[] }                 → { conflicts: [{ path, type, size, mtimeMs }] }  (이미 있는 것만)
+// POST   /v1/uploads              { path, size, mtimeMs?, onConflict? }  → { id, size, received, chunkSize }
+//          onConflict: 'rename'(기본, "이름 (1)") | 'replace'(기존 파일은 휴지통으로) | 'fail'(409 ALREADY_EXISTS)
 // GET    /v1/uploads/:id                                      → { id, size, received }
 // PUT    /v1/uploads/:id?offset=N  본문=청크(원본 바이트), X-Chunk-Sha256
 // POST   /v1/uploads/:id/complete                             → { path }
@@ -46,6 +48,7 @@ import {
   deleteTrash,
   ensureDirectory,
   availableName,
+  resolveInRootReal,
   normalizeNewName,
   parseVirtualPath,
   formatVirtualPath,
@@ -101,6 +104,33 @@ function stringList(v) {
 function conflictMode(v) {
   if (v === undefined || v === 'fail' || v === 'rename') return v ?? 'fail';
   throw new HttpError(400, 'BAD_CONFLICT_MODE');
+}
+
+const UPLOAD_CONFLICT_MODES = new Set(['rename', 'replace', 'fail']);
+
+function uploadConflictMode(v) {
+  if (v === undefined) return 'rename'; // 버퍼 동기화(D21) 등 기존 호출은 그대로
+  if (UPLOAD_CONFLICT_MODES.has(v)) return v;
+  throw new HttpError(400, 'BAD_CONFLICT_MODE');
+}
+
+/** 업로드 대상 가상 경로 — 폴더 업로드는 중간 폴더도 새로 만들 수 있으므로 모든 세그먼트를 NFC 로 (ai.md D12) */
+function uploadVpath(raw) {
+  const segs = parseVirtualPath(raw);
+  if (segs.length === 0) throw new HttpError(400, 'PATH_ROOT');
+  return assertNotReserved(formatVirtualPath(segs.map((s) => normalizeNewName(s))));
+}
+
+/** 이미 있는 항목의 종류. 없으면 null. 링크는 링크 자체로 본다(대체 시 링크만 휴지통으로). */
+async function existingType(root, vpath) {
+  const { absPath, exists } = await resolveInRootReal(root, vpath);
+  if (!exists) return null;
+  const st = await fsp.lstat(absPath);
+  return {
+    type: st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other',
+    size: st.isFile() ? st.size : null,
+    mtimeMs: st.mtimeMs,
+  };
 }
 
 /** 항목별 결과. 하나가 실패해도 나머지는 진행한다. */
@@ -287,18 +317,37 @@ export function createApp({
   });
 
   // ── 업로드 ──
+  // 올리기 전에 이미 있는 항목을 알려준다 → 웹이 대체/건너뛰기/취소를 묻는다. 경로가 잘못된 항목은 건너뜀(업로드 때 오류).
+  v1.post('/uploads/check', signedJson, async (req, res) => {
+    const paths = stringList(req.json.paths);
+    const conflicts = [];
+    for (const p of paths) {
+      try {
+        const found = await existingType(driveRoot, uploadVpath(p));
+        if (found) conflicts.push({ path: p, ...found });
+      } catch {
+        // 잘못된 경로·깨진 링크 등은 업로드 단계에서 항목별 오류로 보인다
+      }
+    }
+    res.json({ conflicts });
+  });
+
   v1.post('/uploads', signedJson, async (req, res) => {
     const { size, mtimeMs } = req.json;
-    const rawSegs = parseVirtualPath(req.json.path);
-    if (rawSegs.length === 0) throw new HttpError(400, 'PATH_ROOT');
-    // 폴더 업로드는 중간 폴더도 새로 만들 수 있으므로 모든 세그먼트를 NFC 로 (ai.md D12)
-    const vpath = assertNotReserved(formatVirtualPath(rawSegs.map((s) => normalizeNewName(s))));
+    const vpath = uploadVpath(req.json.path);
+    const onConflict = uploadConflictMode(req.json.onConflict);
     if (mtimeMs !== undefined && !(Number.isFinite(mtimeMs) && mtimeMs > 0)) throw new HttpError(400, 'BAD_MTIME');
+    // 받기 전에 걸러 낼 수 있는 충돌은 바로 거부 (완료 때 한 번 더 확인)
+    if (onConflict !== 'rename') {
+      const found = await existingType(driveRoot, vpath).catch(() => null);
+      if (found && onConflict === 'fail') throw new HttpError(409, 'ALREADY_EXISTS');
+      if (found && found.type !== 'file') throw new HttpError(409, 'CANNOT_REPLACE_FOLDER');
+    }
     if (Number.isSafeInteger(size)) {
       const st = await fsp.statfs(driveRoot);
       if (size > st.bavail * st.bsize - FREE_SPACE_MARGIN) throw new HttpError(507, 'INSUFFICIENT_STORAGE');
     }
-    const info = await uploads.create(size, { path: vpath, mtimeMs: mtimeMs ?? null });
+    const info = await uploads.create(size, { path: vpath, mtimeMs: mtimeMs ?? null, onConflict });
     res.status(201).json({ id: info.id, size: info.size, received: info.received, chunkSize: uploads.chunkSize });
   });
 
@@ -321,7 +370,25 @@ export function createApp({
     const segs = parseVirtualPath(info.meta.path);
     const parentVpath = formatVirtualPath(segs.slice(0, -1));
     const parentReal = await ensureDirectory(driveRoot, parentVpath);
-    const finalName = await availableName(parentReal, normalizeNewName(segs.at(-1)));
+    const name = normalizeNewName(segs.at(-1));
+    const onConflict = info.meta.onConflict ?? 'rename';
+    let finalName = name;
+    let replaced = false;
+    if (onConflict === 'rename') {
+      finalName = await availableName(parentReal, name);
+    } else {
+      const found = await existingType(driveRoot, info.meta.path);
+      if (found) {
+        // 받는 사이에 생긴 충돌. 임시 파일은 지운다(같은 파일을 다른 방식으로 다시 올리게).
+        if (onConflict === 'fail' || found.type !== 'file') {
+          await uploads.finish(info.id);
+          throw new HttpError(409, onConflict === 'fail' ? 'ALREADY_EXISTS' : 'CANNOT_REPLACE_FOLDER');
+        }
+        // 대체: 덮어쓰지 않고 기존 파일을 휴지통으로 → 되돌릴 수 있다 (D16 — 복구 불가 작업은 재인증 필요)
+        await trashEntry(driveRoot, dirs.trash, info.meta.path);
+        replaced = true;
+      }
+    }
     const dest = path.join(parentReal, finalName);
     await fsp.rename(partPath, dest);
     if (info.meta.mtimeMs) {
@@ -331,7 +398,7 @@ export function createApp({
     await uploads.finish(info.id);
     const finalPath = formatVirtualPath([...segs.slice(0, -1), finalName]);
     if (isReservedPath(finalPath)) throw new HttpError(500, 'INTERNAL'); // 위 검증으로 불가능해야 함
-    res.json({ path: finalPath });
+    res.json(replaced ? { path: finalPath, replaced: true } : { path: finalPath });
   });
 
   v1.delete('/uploads/:id', async (req, res) => {

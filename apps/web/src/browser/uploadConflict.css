@@ -1,0 +1,132 @@
+/* 업로드 중복 확인 대화상자 (UploadConflictDialog.jsx). 바탕·제목·버튼은 .dialog·.btn 을 그대로 쓴다. */
+
+.upload-conflict {
+  width: min(420px, 100%);
+}
+.upload-conflict.is-each {
+  width: min(600px, 100%);
+  display: flex;
+  flex-direction: column;
+  max-height: min(640px, calc(100dvh - 2 * var(--space-6)));
+}
+
+/* 한꺼번에: 세로로 쌓은 선택지 — 긴 문구("새 파일 N개만 올리기")가 잘리지 않게 */
+.uc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.uc-actions .btn {
+  height: 32px;
+  white-space: normal;
+}
+
+.upload-conflict .btn-sm {
+  height: 24px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* 하나씩 */
+.uc-bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.uc-bulk span {
+  flex: 1;
+  min-width: 0;
+}
+
+.uc-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-radius: var(--radius-md, 10px);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.uc-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'name choice' 'meta choice';
+  column-gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+.uc-list li + li {
+  border-top: 0.5px solid var(--line-soft);
+}
+.uc-name {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uc-meta {
+  grid-area: meta;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uc-chip {
+  margin-left: var(--space-1-5);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--fill);
+  color: var(--text-2);
+  font-size: var(--text-2xs);
+  vertical-align: 1px;
+}
+
+/* 유지/대체 — 작은 두 칸 스위치 (세그먼트와 같은 모양, 행이 많아 유리 효과는 뺌) */
+.uc-choice {
+  grid-area: choice;
+  align-self: center;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background: var(--fill);
+}
+.uc-choice button {
+  height: 22px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.uc-choice button.is-on {
+  background: var(--fill-raised);
+  box-shadow: var(--shadow-1);
+  font-weight: var(--weight-medium);
+}
+.uc-choice button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.uc-more {
+  align-self: center;
+  margin-bottom: var(--space-3);
+}
+
+@media (max-width: 520px) {
+  .uc-list li {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'name' 'meta' 'choice';
+    row-gap: var(--space-1);
+  }
+  .uc-choice {
+    justify-self: start;
+  }
+}

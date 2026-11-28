@@ -32,6 +32,7 @@ const MESSAGES = {
   PASSKEY_INVALID_DOMAIN: '이 주소에서는 패스키를 쓸 수 없어요. IP 주소가 아닌 도메인(로컬은 localhost)으로 접속해 주세요.',
   CSRF_ORIGIN: '요청 출처를 확인할 수 없어요. 페이지를 새로고침해 주세요.',
   ALREADY_EXISTS: '같은 이름의 항목이 이미 있어요.',
+  CANNOT_REPLACE_FOLDER: '같은 이름의 폴더가 있어 대체할 수 없어요.',
   SAME_LOCATION: '이미 그 폴더에 있어요.',
   MOVE_INTO_SELF: '폴더를 자기 자신 안으로 옮길 수 없어요.',
   ROOT_IS_READONLY: '최상위 폴더는 바꿀 수 없어요.',

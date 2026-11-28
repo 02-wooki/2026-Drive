@@ -12,6 +12,7 @@
 //   GET  /api/files/zip?path=&path=…           폴더·여러 항목 zip 다운로드 (agent 가 만들고 그대로 파이프)
 //   POST /api/files/{mkdir,rename,move,trash}  GET|POST /api/files/trash[/restore]
 //   POST /api/files/trash/{delete,empty}       ← 패스키 재인증(1회용) 필요
+//   POST /api/files/uploads/check { paths[] }
 //   POST /api/files/uploads  GET|PUT|DELETE /api/files/uploads/:id  POST /api/files/uploads/:id/complete
 //
 //   ── owner 전용: 파이 임시 보관함 (데스크탑이 꺼져 있을 때, D3) ──
@@ -235,7 +236,8 @@ export function apiRouter({
   files.post('/trash/delete', json, stepUp, fwd('POST', () => '/v1/trash/delete', only('ids')));
   files.post('/trash/empty', json, stepUp, fwd('POST', () => '/v1/trash/empty'));
 
-  files.post('/uploads', uploadLimiter.middleware('UPLOAD_RATE_LIMITED'), json, fwd('POST', () => '/v1/uploads', only('path', 'size', 'mtimeMs')));
+  files.post('/uploads/check', json, fwd('POST', () => '/v1/uploads/check', only('paths')));
+  files.post('/uploads', uploadLimiter.middleware('UPLOAD_RATE_LIMITED'), json, fwd('POST', () => '/v1/uploads', only('path', 'size', 'mtimeMs', 'onConflict')));
   files.get('/uploads/:id', async (req, res) => res.json(await agent.getJson(`/v1/uploads/${uploadId(req)}`)));
   files.put('/uploads/:id', async (req, res) => {
     const id = uploadId(req);

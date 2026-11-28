@@ -15,7 +15,7 @@ import { startRegistration } from '@simplewebauthn/browser';
 import { withStepUp } from '../stepUp.js';
 import { api, contentUrl, zipUrl } from '../api.js';
 import { messageFor } from '../messages.js';
-import { uploads, collectDropped, collectPicked } from '../uploads.js';
+import { uploads, collectDropped, collectPicked, findConflicts } from '../uploads.js';
 import { sortEntries, kindLabel, formatSize, formatDate, canPreview, kindOf } from './fileTypes.js';
 import { EntryIcon, Glyph } from './icons.jsx';
 import { Thumb, thumbSrc, RenameInput } from './parts.jsx';
@@ -24,6 +24,7 @@ import { PendingBadge, entryTitle } from './parts.jsx';
 import { QuickLook } from './QuickLook.jsx';
 import { TrashView } from './TrashView.jsx';
 import { UploadPanel } from './UploadPanel.jsx';
+import { UploadConflictDialog } from './UploadConflictDialog.jsx';
 import { ConfirmDialog, ContextMenu, Toast } from './Overlays.jsx';
 import { installLongPress } from './longPress.js';
 import { ButtonGroup, IconButton, SegmentedControl } from '../design/index.js';
@@ -95,6 +96,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
   const [toast, setToast] = useState(null);
   const [menu, setMenu] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [uploadConflict, setUploadConflict] = useState(null); // { list, conflicts, baseDir }
   const [dropTarget, setDropTarget] = useState(null); // 폴더 경로 또는 '@here'
   const [dragging, setDragging] = useState(null); // 내부 드래그 중인 경로들
   /** 파이 임시 보관함에서 데스크탑으로 옮겨지길 기다리는 파일들 */
@@ -379,11 +381,23 @@ export function Browser({ user, loc, navigate, onLogout }) {
     [go, source, selectOnly, download, showQuickLook],
   );
 
-  /** 올리기: 데스크탑이 꺼져 있으면 파이에 임시 보관할지 묻는다 (D3) */
+  /**
+   * 올리기: 이미 있는 파일이 있으면 대체·유지·취소를 묻는다 (자동으로 "이름 (1)" 을 붙이지 않음).
+   * 데스크탑이 꺼져 있으면 파이에 임시 보관할지 묻는다 (D3) — 이때는 중복 확인을 할 수 없어 옮길 때 "이름 (1)".
+   */
   const addUploads = useCallback(
     async (list) => {
       if (!list.length) return;
-      if (desktop !== 'offline' && !offlineView) return uploads.add(list);
+      if (desktop !== 'offline' && !offlineView) {
+        let conflicts;
+        try {
+          conflicts = await findConflicts(list);
+        } catch (e) {
+          return notify({ kind: 'error', text: messageFor(e) });
+        }
+        if (conflicts.size === 0) return uploads.add(list.map((x) => ({ ...x, onConflict: 'fail' })));
+        return setUploadConflict({ list, conflicts, baseDir: path });
+      }
       let info;
       try {
         info = await api.buffer.list();
@@ -401,7 +415,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
         run: () => uploads.add(list, 'buffer'),
       });
     },
-    [desktop, offlineView, notify],
+    [desktop, offlineView, notify, path],
   );
 
   const failMsg = (results, verb) => {
@@ -1109,6 +1123,20 @@ export function Browser({ user, loc, navigate, onLogout }) {
           }}
           onCancel={() => {
             setConfirm(null);
+            focusContent();
+          }}
+        />
+      )}
+      {uploadConflict && (
+        <UploadConflictDialog
+          {...uploadConflict}
+          onConfirm={(files) => {
+            setUploadConflict(null);
+            if (files.length) uploads.add(files);
+            focusContent();
+          }}
+          onCancel={() => {
+            setUploadConflict(null);
             focusContent();
           }}
         />
