@@ -76,10 +76,14 @@ class UploadManager {
     this.completeListeners = new Set();
     this.seq = 0;
     this.running = 0; // 진행 중인 작업 수
+    this.emitTimer = null;
+    this.preparing = null;
+    this.prepareListeners = new Set();
   }
 
   subscribe(fn) {
     this.listeners.add(fn);
+    fn(this.items.map(({ file: _f, ctrl: _c, ...rest }) => ({ ...rest })));
     return () => this.listeners.delete(fn);
   }
 
@@ -89,9 +93,26 @@ class UploadManager {
     return () => this.completeListeners.delete(fn);
   }
 
+  // 파일이 몇만 개일 때 진행 상황이 바뀔 때마다 전체를 복사·다시 그리지 않도록 0.1초에 한 번으로 모은다
   #emit() {
-    const snapshot = this.items.map(({ file: _f, ctrl: _c, ...rest }) => ({ ...rest }));
-    for (const fn of this.listeners) fn(snapshot);
+    if (this.emitTimer) return;
+    this.emitTimer = setTimeout(() => {
+      this.emitTimer = null;
+      const snapshot = this.items.map(({ file: _f, ctrl: _c, ...rest }) => ({ ...rest }));
+      for (const fn of this.listeners) fn(snapshot);
+    }, 100);
+  }
+
+  /** 올리기 전 준비(폴더 펼치기·중복 확인) 진행 문구. null 이면 끝. 업로드 패널이 보여준다. */
+  setPreparing(text) {
+    this.preparing = text;
+    for (const fn of this.prepareListeners) fn(text);
+  }
+
+  onPreparing(fn) {
+    this.prepareListeners.add(fn);
+    fn(this.preparing);
+    return () => this.prepareListeners.delete(fn);
   }
 
   /**
@@ -168,6 +189,7 @@ class UploadManager {
       for (const it of group) {
         it.state = 'uploading';
         it.startedAt = Date.now();
+        it.batched = batchable(first); // 묶음은 파일별 진행률이 없다
       }
       this.running++;
       this.#emit();
@@ -404,18 +426,64 @@ class UploadManager {
 export const uploads = new UploadManager();
 
 const CHECK_BATCH = 500; // gateway JSON 본문 256KB 안쪽
+const CHECK_PARALLEL = 4;
+
+/** 경로 목록 → 이미 있는 것만 Map. 500개씩, 동시에 4개 요청 */
+async function checkPaths(paths, onProgress) {
+  const found = new Map();
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < paths.length) {
+      const slice = paths.slice(next, (next += CHECK_BATCH));
+      const { conflicts } = await api.uploads.check(slice);
+      for (const { path, ...rest } of conflicts) found.set(path, rest);
+      done += slice.length;
+      onProgress?.(done);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHECK_PARALLEL, Math.ceil(paths.length / CHECK_BATCH)) }, worker));
+  return found;
+}
 
 /**
  * 올릴 위치에 이미 있는 항목 찾기 (데스크탑만). dest 는 NFC 로 맞춰 서버가 저장할 이름과 비교한다.
+ * 1) 모든 dest 의 공통 폴더 바로 아래 항목(올리는 폴더·파일 자체)만 먼저 확인 — 없으면 그 아래는 전부 새 파일
+ * 2) 이미 있는 폴더 아래 파일만 하나하나 확인
+ * → 새 폴더를 통째로 올리면 요청 한 번으로 끝난다.
  * @param {Array<{ file: File, dest: string }>} list
+ * @param {(checked: number, total: number) => void} [onProgress]
  * @returns {Promise<Map<string, { type: 'file' | 'dir' | 'other', size: number | null, mtimeMs: number | null }>>} NFC dest → 기존 항목
  */
-export async function findConflicts(list) {
+export async function findConflicts(list, onProgress) {
   const dests = [...new Set(list.map((x) => x.dest.normalize('NFC')))];
+  if (!dests.length) return new Map();
+  // 공통 폴더 (마지막 세그먼트는 파일 이름이라 제외)
+  let common = dests[0].split('/').slice(0, -1);
+  for (const d of dests) {
+    const segs = d.split('/');
+    let i = 0;
+    while (i < common.length && i < segs.length - 1 && common[i] === segs[i]) i++;
+    common = common.slice(0, i);
+  }
+  const depth = common.length; // '/a/b' → ['', 'a', 'b']
+  const topOf = (d) => d.split('/').slice(0, depth + 1).join('/');
+  const tops = [...new Set(dests.map(topOf))];
+  const topFound = await checkPaths(tops);
   const found = new Map();
-  for (let i = 0; i < dests.length; i += CHECK_BATCH) {
-    const { conflicts } = await api.uploads.check(dests.slice(i, i + CHECK_BATCH));
-    for (const { path, ...rest } of conflicts) found.set(path, rest);
+  const rest = [];
+  for (const d of dests) {
+    const top = topOf(d);
+    if (d === top) {
+      if (topFound.has(d)) found.set(d, topFound.get(d));
+    } else if (topFound.has(top)) {
+      rest.push(d); // 이미 있는 폴더(또는 같은 이름의 무언가) 아래 → 하나하나 확인
+    }
+  }
+  onProgress?.(dests.length - rest.length, dests.length);
+  if (rest.length) {
+    const more = await checkPaths(rest, (n) => onProgress?.(dests.length - rest.length + n, dests.length));
+    for (const [k, v] of more) found.set(k, v);
   }
   return found;
 }
@@ -424,11 +492,26 @@ export async function findConflicts(list) {
  * 드롭된 항목(파일·폴더)을 { file, dest } 목록으로 펼친다. 폴더는 하위까지 재귀.
  * @param {DataTransfer} dt
  * @param {string} baseDir  올릴 위치(가상 경로)
+ * @param {(found: number) => void} [onProgress]  찾은 파일 수 (가끔씩)
  */
-export async function collectDropped(dt, baseDir) {
+export async function collectDropped(dt, baseDir, onProgress) {
   const join = (dir, name) => (dir === '/' ? `/${name}` : `${dir}/${name}`);
-  const out = [];
   const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return [...dt.files].map((file) => ({ file, dest: join(baseDir, file.name) }));
+
+  // 파일·폴더 읽기를 한꺼번에 여러 개 진행한다(하나씩 기다리지 않음). 상한을 두는 건 몇만 개 요청을
+  // 한 번에 걸면 브라우저 안에서 줄 서는 건 같고 메모리만 늘기 때문.
+  const limit = concurrency(64);
+  let found = 0;
+  let lastReport = 0;
+  const report = () => {
+    found++;
+    const t = performance.now();
+    if (t - lastReport > 150) {
+      lastReport = t;
+      onProgress?.(found);
+    }
+  };
 
   const readAll = (reader) =>
     new Promise((resolve, reject) => {
@@ -444,22 +527,48 @@ export async function collectDropped(dt, baseDir) {
       step();
     });
 
+  /** @returns {Promise<Array<{ file: File, dest: string }>>} 폴더 안 순서 유지 */
   async function walk(entry, dir) {
     if (entry.isFile) {
-      const file = await new Promise((res, rej) => entry.file(res, rej));
-      out.push({ file, dest: join(dir, file.name) });
-    } else if (entry.isDirectory) {
-      const sub = join(dir, entry.name);
-      for (const child of await readAll(entry.createReader())) await walk(child, sub);
+      const file = await limit(() => new Promise((res, rej) => entry.file(res, rej)));
+      report();
+      return [{ file, dest: join(dir, file.name) }];
     }
+    if (entry.isDirectory) {
+      const sub = join(dir, entry.name);
+      const children = await limit(() => readAll(entry.createReader()));
+      return (await Promise.all(children.map((c) => walk(c, sub)))).flat();
+    }
+    return [];
   }
 
-  if (entries.length) {
-    for (const e of entries) await walk(e, baseDir);
-  } else {
-    for (const file of dt.files) out.push({ file, dest: join(baseDir, file.name) });
-  }
+  const out = (await Promise.all(entries.map((e) => walk(e, baseDir)))).flat();
+  onProgress?.(found);
   return out;
+}
+
+/** 동시에 n 개까지만 실행 */
+function concurrency(n) {
+  let active = 0;
+  let head = 0; // shift() 는 몇만 개짜리 배열에서 매번 전체를 옮기므로 위치만 넘긴다
+  const queue = [];
+  const next = () => {
+    if (active >= n || head >= queue.length) return;
+    active++;
+    const { fn, resolve, reject } = queue[head];
+    queue[head++] = null;
+    fn()
+      .then(resolve, reject)
+      .finally(() => {
+        active--;
+        next();
+      });
+  };
+  return (fn) =>
+    new Promise((resolve, reject) => {
+      queue.push({ fn, resolve, reject });
+      next();
+    });
 }
 
 /** <input type=file webkitdirectory> 결과 → { file, dest } (webkitRelativePath 유지) */

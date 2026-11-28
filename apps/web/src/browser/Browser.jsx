@@ -253,17 +253,36 @@ export function Browser({ user, loc, navigate, onLogout }) {
     if (desktop === 'online') refreshPending();
   }, [desktop, source, listing.error, listing.cached, load, refreshPending]);
 
-  // 업로드가 현재 폴더에 끝나면 목록 새로고침 (여러 개가 연달아 끝나도 한 번만)
+  // 업로드로 생긴 항목 반영: 로딩 표시 없이 목록만 바꾼다 (탐색·다운로드하는 중에 깜빡이지 않게).
+  // 실패하면 조용히 넘어감 — 다음 새로고침이나 폴더 이동 때 맞춰진다.
+  const refreshQuiet = useCallback(async () => {
+    if (source === 'trash') return;
+    try {
+      const r = await api.list(source, path);
+      setListing((l) => (l.key === locKey && !l.loading ? { ...l, entries: r.entries, error: null, cached: Boolean(r.cached), cachedAt: r.cachedAt ?? null } : l));
+    } catch {}
+  }, [source, path, locKey]);
+
+  // 업로드가 현재 폴더에 끝나면 목록 새로고침 — 계속 끝나는 동안에는 2초에 한 번까지만
   useEffect(() => {
-    let t;
-    return uploads.onComplete((finalPath, target) => {
+    let t = null;
+    let last = 0;
+    const off = uploads.onComplete((finalPath, target) => {
       if (target === 'buffer') return void refreshPending();
       if (source !== 'files') return;
       if (!finalPath.startsWith(path === '/' ? '/' : `${path}/`)) return;
-      clearTimeout(t);
-      t = setTimeout(load, 400);
+      if (t) return;
+      t = setTimeout(() => {
+        t = null;
+        last = Date.now();
+        refreshQuiet();
+      }, Math.max(400, 2000 - (Date.now() - last)));
     });
-  }, [source, path, load, refreshPending]);
+    return () => {
+      off();
+      clearTimeout(t);
+    };
+  }, [source, path, refreshQuiet, refreshPending]);
 
   // ── 보이는 항목 (+ 파이 보관함에서 기다리는 항목은 흐리게 "대기 중") ──
   const ghosts = useMemo(() => {
@@ -397,10 +416,15 @@ export function Browser({ user, loc, navigate, onLogout }) {
       if (!list.length) return;
       if (desktop !== 'offline' && !offlineView) {
         let conflicts;
+        uploads.setPreparing(`이미 있는 파일 확인 중… (${list.length.toLocaleString()}개)`);
         try {
-          conflicts = await findConflicts(list);
+          conflicts = await findConflicts(list, (checked, total) =>
+            uploads.setPreparing(`이미 있는 파일 확인 중… ${checked.toLocaleString()} / ${total.toLocaleString()}`),
+          );
         } catch (e) {
           return notify({ kind: 'error', text: messageFor(e) });
+        } finally {
+          uploads.setPreparing(null);
         }
         if (conflicts.size === 0) return uploads.add(list.map((x) => ({ ...x, onConflict: 'fail' })));
         return setUploadConflict({ list, conflicts, baseDir: path });
@@ -423,6 +447,23 @@ export function Browser({ user, loc, navigate, onLogout }) {
       });
     },
     [desktop, offlineView, notify, path],
+  );
+
+  /** 끌어다 놓은 파일·폴더 펼치기 → 업로드. 몇만 개면 오래 걸려서 진행 상황을 업로드 패널에 보여준다 */
+  const dropUploads = useCallback(
+    async (dt, dir) => {
+      uploads.setPreparing('올릴 파일 찾는 중…');
+      let list;
+      try {
+        list = await collectDropped(dt, dir, (n) => uploads.setPreparing(`올릴 파일 찾는 중… ${n.toLocaleString()}개`));
+      } catch (e) {
+        uploads.setPreparing(null);
+        return notify({ kind: 'error', text: messageFor(e) });
+      }
+      uploads.setPreparing(null);
+      await addUploads(list);
+    },
+    [addUploads, notify],
   );
 
   const failMsg = (results, verb) => {
@@ -728,7 +769,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
               setDragging(null);
               moveTo(JSON.parse(raw), folderPath);
             } else if (e.dataTransfer.types.includes('Files')) {
-              addUploads(await collectDropped(e.dataTransfer, folderPath));
+              dropUploads(e.dataTransfer, folderPath);
             }
           },
         }
@@ -750,7 +791,7 @@ export function Browser({ user, loc, navigate, onLogout }) {
           if (!e.dataTransfer.types.includes('Files')) return;
           e.preventDefault();
           setDropTarget(null);
-          addUploads(await collectDropped(e.dataTransfer, path));
+          dropUploads(e.dataTransfer, path);
         },
       }
     : {};

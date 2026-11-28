@@ -332,16 +332,36 @@ export function createApp({
   // 올리기 전에 이미 있는 항목을 알려준다 → 웹이 대체/건너뛰기/취소를 묻는다. 경로가 잘못된 항목은 건너뜀(업로드 때 오류).
   v1.post('/uploads/check', signedJson, async (req, res) => {
     const paths = stringList(req.json.paths);
-    const conflicts = [];
-    for (const p of paths) {
-      try {
-        const found = await existingType(driveRoot, uploadVpath(p));
-        if (found) conflicts.push({ path: p, ...found });
-      } catch {
-        // 잘못된 경로·깨진 링크 등은 업로드 단계에서 항목별 오류로 보인다
+    // 상위 폴더가 없으면 그 아래는 볼 것도 없다 → 폴더마다 한 번만 확인 (새 폴더를 통째로 올릴 때 빠름)
+    const present = new Map(); // 폴더 가상 경로 → Promise<boolean>
+    const exists = (vp) => {
+      if (vp === '/') return Promise.resolve(true);
+      if (!present.has(vp)) {
+        const segs = parseVirtualPath(vp);
+        present.set(
+          vp,
+          exists(formatVirtualPath(segs.slice(0, -1))).then((up) => up && existingType(driveRoot, vp).then((f) => f !== null, () => false)),
+        );
       }
-    }
-    res.json({ conflicts });
+      return present.get(vp);
+    };
+    const results = new Array(paths.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < paths.length) {
+        const i = next++;
+        try {
+          const vpath = uploadVpath(paths[i]);
+          if (!(await exists(formatVirtualPath(parseVirtualPath(vpath).slice(0, -1))))) continue;
+          const found = await existingType(driveRoot, vpath);
+          if (found) results[i] = { path: paths[i], ...found };
+        } catch {
+          // 잘못된 경로·깨진 링크 등은 업로드 단계에서 항목별 오류로 보인다
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: 16 }, worker));
+    res.json({ conflicts: results.filter(Boolean) });
   });
 
   v1.post('/uploads', signedJson, async (req, res) => {

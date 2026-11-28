@@ -1383,6 +1383,29 @@ pre.ql-text {
   padding: 0 10px;
   font-size: var(--text-sm);
 }
+.upload-more {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+.upload-preparing {
+  color: var(--text);
+}
+.upload-done-summary > button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  padding: var(--space-1-5) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.upload-done-toggle {
+  color: var(--accent);
+}
 .upload-panel.is-collapsed {
   grid-template-rows: auto auto;
 }

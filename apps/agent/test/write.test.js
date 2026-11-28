@@ -358,3 +358,27 @@ test('batch upload: many small files in one request, per-file results, idempoten
   assert.deepEqual([m4.status, m4.body.error], [400, 'BAD_CONFLICT_MODE']);
   for (const f of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt']) assert.ok(!exists('bt', f), f);
 });
+
+test('upload check: deep existing files are found, missing folders skip their contents, order kept', async () => {
+  fs.mkdirSync(path.join(root, 'chk', 'x', 'y'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'chk', 'x', 'y', 'deep.txt'), 'd');
+  fs.writeFileSync(path.join(root, 'chk', 'top.txt'), 't');
+  const paths = [
+    ...Array.from({ length: 300 }, (_, i) => `/chk/new/sub${i % 7}/f${i}.txt`), // 없는 폴더 아래
+    '/chk/x/y/deep.txt',
+    '/chk/x/y/missing.txt',
+    '/chk/x',
+    '/chk/top.txt',
+    '/chk/top.txt/child.txt', // 상위가 파일 → 충돌 아님(업로드 때 오류)
+  ];
+  const r = await call('POST', '/v1/uploads/check', { paths });
+  assert.equal(r.status, 200);
+  assert.deepEqual(
+    r.body.conflicts.map((c) => [c.path, c.type]),
+    [
+      ['/chk/x/y/deep.txt', 'file'],
+      ['/chk/x', 'dir'],
+      ['/chk/top.txt', 'file'],
+    ],
+  );
+});
