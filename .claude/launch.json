@@ -12,6 +12,19 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace", "apps/gateway"],
       "port": 7400
+    },
+    {
+      "name": "gateway-for-vite",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "apps/gateway"],
+      "env": { "PUBLIC_ORIGIN": "http://127.0.0.1:5173" },
+      "port": 7400
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "apps/web"],
+      "port": 5173
     }
   ]
 }
