@@ -3,11 +3,11 @@ import { cx } from '../lib/cx.js';
 
 /**
  * 글자 버튼.
- * @param {{ variant?: 'plain' | 'primary' | 'danger' | 'danger-outline', size?: 'sm' | 'md' | 'lg', className?: string }
+ * @param {{ variant?: 'plain' | 'primary' | 'danger' | 'danger-outline', size?: 'md' | 'lg', className?: string }
  *         & import('react').ButtonHTMLAttributes<HTMLButtonElement>} props
  */
 export function Button({ variant = 'plain', size = 'md', className, type = 'button', ...rest }) {
-  return <button type={type} className={cx('btn', variant !== 'plain' && `btn-${variant}`, size !== 'md' && `btn-${size}`, className)} {...rest} />;
+  return <button type={type} className={cx('btn', variant !== 'plain' && `btn-${variant}`, size === 'lg' && 'btn-large', className)} {...rest} />;
 }
 
 /**

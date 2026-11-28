@@ -105,13 +105,32 @@
     var(--wallpaper-base);
 
   /* ── 유리 ── glass.css 가 쓴다 */
-  --glass-bg: rgba(255, 255, 255, 0.52); /* 기본 (사이드바·메뉴·패널) */
-  --glass-bg-dark: rgba(28, 28, 32, 0.72); /* 어두운 유리 (토스트) */
+  --glass-bg: rgba(255, 255, 255, 0.16); /* 기본: 뒤가 훤히 비치는 얇은 유리 */
+  --glass-bg-thick: rgba(255, 255, 255, 0.62); /* 두꺼운 유리: 글이 많은 대화상자·메뉴·패널 */
+  --glass-bg-clear: rgba(255, 255, 255, 0); /* 맑은 유리 */
+  --glass-bg-content: rgba(255, 255, 255, 0.24); /* 유리 위에 올린 도형 유리: 바탕보다 희고 밝게 */
+  --glass-bg-dark: rgba(28, 28, 32, 0.55); /* 어두운 유리 (토스트) */
+  --glass-icon: #111114; /* 얇은 유리 위 아이콘: 뒤가 비쳐도 읽히게 가장 진한 글자색 */
+  --glass-halo: rgba(255, 255, 255, 0.85); /* 아이콘 둘레 번짐: 뒤 배경과 아이콘을 떼어 놓는다 */
   --glass-text-dark: #ffffff;
   --glass-fallback: #f3f4f7; /* 투명 효과를 못 쓰거나 끈 경우 */
   --glass-fallback-dark: #2c2c30;
-  --glass-blur: 22px;
-  --glass-saturate: 1.8;
+  --glass-blur: 3px; /* 가운데 흐림: 굴절이 보이도록 얇게 */
+  --glass-blur-edge: 6px; /* 가장자리 흐림: 가운데에서 가장자리로 갈수록 이만큼까지 두꺼워진다 */
+  --glass-blur-thick: 24px;
+  --glass-saturate: 1.7;
+  /* 굴절: 실제 볼록 유리처럼 계산 (가운데 평평, 가장자리로 갈수록 면이 서서 크게 꺾임) */
+  --glass-refract: 0.6; /* 맨 가장자리에서 배경을 끌어오는 거리 (짧은 변 절반에 대한 비율) */
+  --glass-bezel: 0.45; /* 굴곡진 가장자리 폭 (짧은 변 절반에 대한 비율) */
+  --glass-ior: 1.5; /* 굴절률 (유리 ≈ 1.5) */
+  --glass-aberration: 0.6; /* 가장자리 색수차: 굴절에 비례해 빨강이 파랑보다 더 휘는 비율 (0 = 없음) */
+  --glass-aberration-base: 2px; /* 면 전체의 약한 색수차: 가운데 0 → 가장자리 이만큼 (직선) */
+  /* (선택) 가장자리 색 띠: 뒤 배경의 대표 색을 두른다. 기본은 끔 — 굴절이 가장자리 색을 만든다 */
+  --glass-rim-width: 26px;
+  --glass-rim-tint: 0;
+  --glass-rim-saturate: 2.4; /* 띠의 채도: 섞인 평균색을 대표 색 쪽으로 끌어올린다 */
+  --glass-rim-deepen: 2; /* 띠를 진하게 하는 감마: 진한 색일수록 더 깊어지고, 흰 바탕은 거의 그대로 (탁해지지 않게) */
+  --glass-light-angle: 145deg; /* 반사광(림 라이트)이 들어오는 방향 */
   --glass-rim-hi: rgba(255, 255, 255, 0.95);
   --glass-rim-lo: rgba(255, 255, 255, 0.2);
   --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(255, 255, 255, 0.18);
@@ -157,8 +176,13 @@
       radial-gradient(45vmax 40vmax at 12% 96%, rgba(190, 120, 80, 0.26), transparent 60%),
       var(--wallpaper-base);
 
-    --glass-bg: rgba(38, 38, 42, 0.5);
-    --glass-bg-dark: rgba(58, 58, 64, 0.72);
+    --glass-bg: rgba(30, 30, 34, 0.22);
+    --glass-bg-thick: rgba(38, 38, 42, 0.62);
+    --glass-bg-content: rgba(255, 255, 255, 0.16);
+    --glass-bg-clear: rgba(0, 0, 0, 0.12); /* 어두운 화면에선 살짝 어둡게 해야 아이콘이 보인다 */
+    --glass-bg-dark: rgba(58, 58, 64, 0.55);
+    --glass-icon: #ffffff;
+    --glass-halo: rgba(0, 0, 0, 0.7);
     --glass-fallback: #2a2a2e;
     --glass-rim-hi: rgba(255, 255, 255, 0.38);
     --glass-rim-lo: rgba(255, 255, 255, 0.05);
